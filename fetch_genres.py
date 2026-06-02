@@ -77,7 +77,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
     if "Genre" not in fieldnames:
         if "Episode #" in fieldnames:
             # Find the dynamic index of "Episode #" and place "Genre" right before it
-                        episode_index = fieldnames.index("Episode #")
+            episode_index = fieldnames.index("Episode #")
             output_fields = fieldnames[:episode_index] + ["Genre"] + fieldnames[episode_index:]
         elif len(fieldnames) >= 3:
             # Fallback if Episode # is missing but sheet is wide
@@ -112,7 +112,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
             
             # Scenario Filter: Validate by Episode status only if column exists
             # If it doesn't exist, process every single game row automatically.
-                if has_episode_column:
+            if has_episode_column:
                 episode = row.get("Episode #")
                 if not episode or episode.strip() in ("", "-", "None"):
                     row["Genre"] = ""
