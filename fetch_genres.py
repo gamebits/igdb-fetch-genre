@@ -102,7 +102,8 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                 continue
             
             # Scenario Filter: Validate by Episode status only if column exists
-            # If it doesn't exist, process every single game row automatically.            if has_episode_column:
+            # If it doesn't exist, process every single game row automatically.
+            if has_episode_column:
                 episode = row.get("Episode #")
                 if not episode or episode.strip() in ("", "-", "None"):
                     row["Genre"] = ""
