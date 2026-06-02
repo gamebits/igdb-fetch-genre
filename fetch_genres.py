@@ -8,14 +8,23 @@ import requests
 # --- Configuration ---
 CLIENT_ID = os.environ.get("IGDB_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("IGDB_CLIENT_SECRET")
-INPUT_CSV = "Retro Master List - Sheet1.csv"
-OUTPUT_CSV = "Retro Master List - With Genres.csv"
 
 if not CLIENT_ID or not CLIENT_SECRET:
     print("Error: Please set IGDB_CLIENT_ID and IGDB_CLIENT_SECRET environment variables.")
     sys.exit(1)
 
-# --- Step 1: Authenticate with Twitch OAuth2 ---
+# --- Step 1: Prompt the User for Input File ---
+INPUT_CSV = input("Enter the input CSV filename (e.g., Games.csv): ").strip()
+
+if not os.path.exists(INPUT_CSV):
+    print(f"Error: The file '{INPUT_CSV}' could not be found in the current directory.")
+    sys.exit(1)
+
+# Dynamically calculate the output filename based on the input name
+file_base, file_ext = os.path.splitext(INPUT_CSV)
+OUTPUT_CSV = f"{file_base}-Genres{file_ext}"
+
+# --- Step 2: Authenticate with Twitch OAuth2 ---
 print("Authenticating with Twitch OAuth2...")
 auth_url = f"https://id.twitch.tv/oauth2/token?client_id={CLIENT_ID}&client_secret={CLIENT_SECRET}&grant_type=client_credentials"
 try:
@@ -50,7 +59,7 @@ def query_igdb_with_retry(query_body, max_retries=5):
     print("❌ Max retries reached for rate limiting.")
     return None
 
-# --- Step 2: Stream, Filter, Query, and Write Rows ---
+# --- Step 3: Stream, Filter, Query, and Write Rows ---
 print(f"Opening {INPUT_CSV} for processing...")
 
 with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:

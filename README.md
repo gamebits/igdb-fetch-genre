@@ -39,9 +39,9 @@ For the script to work flawlessly without manual path overrides, save the proces
 Use the following naming layout:
 
 * **Target Directory Location:** `~/Desktop/ngp/` *(or any folder path of your choice)*
-* **Input Spreadsheet Filename:** `Retro Master List - Sheet1.csv`
+* **Input Spreadsheet Filename:** The script prompts the user at execution time to identify the CSV file (e.g., `Games.csv` or `Retro Master List - Sheet1.csv`)
 * **Python Script Filename:** `fetch_genres.py`
-* **Generated Output Spreadsheet:** `Retro Master List - With Genres.csv` *(This file is automatically created during execution)*
+* **Generated Output Spreadsheet:** Dynamically named based on your input with `-Genres` appended (e.g., `Games-Genres.csv` or `Retro Master List - Sheet1-Genres.csv`) *(This file is automatically created during execution)*
 
 ### Expected & Acceptable Spreadsheet Layouts
 
