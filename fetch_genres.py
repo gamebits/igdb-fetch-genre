@@ -14,7 +14,7 @@ if not CLIENT_ID or not CLIENT_SECRET:
     sys.exit(1)
 
 # --- Step 1: Prompt the User for Input File ---
-INPUT_CSV = input("Enter the input CSV filename (e.g., KensGames.csv): ").strip()
+INPUT_CSV = input("Enter the input CSV filename (e.g., Games.csv): ").strip()
 
 if not os.path.exists(INPUT_CSV):
     print(f"Error: The file '{INPUT_CSV}' could not be found in the current directory.")
@@ -59,6 +59,13 @@ def query_igdb_with_retry(query_body, max_retries=5):
     print("❌ Max retries reached for rate limiting.")
     return None
 
+# Helper function to normalize text for logical matching evaluation
+def normalize_string(text):
+    if not text:
+        return ""
+    # Lowercase and strip common punctuation dividers to find near-perfect string pairs
+    return "".join(c for c in text.lower() if c.isalnum())
+
 # --- Step 3: Stream, Filter, Query, and Write Rows ---
 print(f"Opening {INPUT_CSV} for processing...")
 
@@ -88,7 +95,8 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
     has_episode_column = "Episode #" in fieldnames
 
     with open(OUTPUT_CSV, mode='w', encoding='utf-8', newline='') as outfile:
-        writer = csv.DictWriter(outfile, fieldnames=output_fields)
+        # Crucial: Restricting to extrasaction='ignore' prevents layout bleeding
+        writer = csv.DictWriter(outfile, fieldnames=output_fields, extrasaction='ignore')
         
         if has_title_line:
             outfile.write(title_line)
@@ -103,38 +111,56 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
             
             if not title or title.strip() == "":
                 row["Genre"] = ""
-                writer.writerow(row)
+                # Construct clean dictionary matching output formatting exactly
+                clean_row = {field: row.get(field, "") for field in output_fields}
+                writer.writerow(clean_row)
                 continue
             
             if has_episode_column:
                 episode = row.get("Episode #")
                 if not episode or episode.strip() in ("", "-", "None"):
                     row["Genre"] = ""
-                    writer.writerow(row)
+                    clean_row = {field: row.get(field, "") for field in output_fields}
+                    writer.writerow(clean_row)
                     continue
             
             game_title = title.strip()
+            target_norm = normalize_string(game_title)
             
-            # --- STAGE 1: Exact Match (High Precision) ---
-            # Looks for the strict text match on IGDB's index search engine
-            body_exact = f'search "{game_title}"; fields name, genres.name; limit 1;'
-            data = query_igdb_with_retry(body_exact)
-            match_type = "Exact"
+            # --- STAGE 1: Broad Exact/Search (Pulls up to 5 candidates) ---
+            # By pulling a small list, we prevent random spin-offs from overriding the main entry
+            body_exact = f'search "{game_title}"; fields name, genres.name; limit 5;'
+            candidates = query_igdb_with_retry(body_exact)
+            match_type = "Search Match"
             
-            # --- STAGE 2: Fuzzy Match Fallback (Handles Missing Colons/Hyphens) ---
-            # Runs ONLY if the exact match fails to find anything
-            if not data:
-                body_fuzzy = f'fields name, genres.name; where name ~ *"{game_title}"*; limit 1;'
-                data = query_igdb_with_retry(body_fuzzy)
-                match_type = "Fuzzy"
-            
+            # --- STAGE 2: Fuzzy Wildcard Fallback (If Stage 1 returned completely empty) ---
+            if not candidates:
+                fuzzy_title = game_title.lower().replace(":", "").replace("-", "")
+                body_fuzzy = f'fields name, genres.name; where name ~ *"{fuzzy_title}"*; limit 5;'
+                candidates = query_igdb_with_retry(body_fuzzy)
+                match_type = "Fuzzy Match"
+                
+            # --- STAGE 3: Best Candidate Selection Loop ---
+            matched_game = None
             genre_str = ""
-            if data:
-                matched_game = data[0]
+            
+            if candidates:
+                # Loop through candidates to find the closest alphanumeric match to your CSV name
+                for candidate in candidates:
+                    cand_norm = normalize_string(candidate.get("name", ""))
+                    # If an exact normalized match is found, lock it in immediately
+                    if cand_norm == target_norm or target_norm in cand_norm:
+                        matched_game = candidate
+                        break
+                
+                # Fallback safety: if no candidate fits perfectly, default cleanly to the first returned option
+                if not matched_game:
+                    matched_game = candidates[0]
+                    
                 if "genres" in matched_game:
                     genres = [g["name"] for g in matched_game["genres"]]
                     genre_str = ", ".join(genres)
-                    print(f"🎮 {game_title} ➡️  [{genre_str}] ({match_type} Match: {matched_game['name']})")
+                    print(f"🎮 {game_title} ➡️  [{genre_str}] ({match_type}: {matched_game['name']})")
                 else:
                     genre_str = "No genre data available"
                     print(f"🎮 {game_title} ➡️  [No genre found via {match_type}]")
@@ -143,7 +169,9 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                 genre_str = "Unknown"
             
             row["Genre"] = genre_str
-            writer.writerow(row)
+            # Construct clean dictionary matching output formatting exactly to fix column skewing
+            clean_row = {field: row.get(field, "") for field in output_fields}
+            writer.writerow(clean_row)
 
             time.sleep(0.25)
 
