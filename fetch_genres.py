@@ -74,12 +74,12 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
             # Fallback if Episode # is missing but sheet is wide
             output_fields = fieldnames[:3] + ["Genre"] + fieldnames[3:]
         else:
-            # Fallback for small/thin sheets
+            # Place as the last column for thin sheets
             output_fields = fieldnames + ["Genre"]
     else:
         output_fields = fieldnames
 
-    # Track if we need to filter by Episode status
+    # Determine if we have a valid Episode filtering column
     has_episode_column = "Episode #" in fieldnames
 
     with open(OUTPUT_CSV, mode='w', encoding='utf-8', newline='') as outfile:
@@ -102,7 +102,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                 continue
             
             # Scenario Filter: Validate by Episode status only if column exists
-            if has_episode_column:
+            # If it doesn't exist, process every single game row automatically.            if has_episode_column:
                 episode = row.get("Episode #")
                 if not episode or episode.strip() in ("", "-", "None"):
                     row["Genre"] = ""
