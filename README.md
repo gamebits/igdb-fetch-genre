@@ -49,7 +49,7 @@ The utility dynamically detects the shape of your CSV file and alters its parsin
 
 #### Layout A: Multi-Column List (With Episode Filtering)
 If your CSV contains multiple columns and specifically includes a column titled `Episode #`, the script activates its filtering engine. It will **only query IGDB for rows that have a valid episode number assigned**. Any rows with a blank, `-`, or missing `Episode #` column are skipped to protect API limits.
-* **Genre Insertion:** Because the spreadsheet has three or more columns, the new `Genre` column is cleanly injected as the **fourth column** (between `Original System` and `Episode #`) to preserve the layout of your trailing columns.
+* **Genre Insertion:** Because the spreadsheet has three or more columns, the new `Genre` column is cleanly injected to a new column immediately before the `Episode #` column, preserving the layout and content of the preceding and trailing columns.
 
 #### Layout B: Thin/Single-Column List (Full Bulk Query)
 If your CSV is stripped down (e.g., a simple list of raw game titles with fewer than three columns total) or lacks an `Episode #` column entirely, the filtering logic automatically turns off. The script will **bulk query and fetch genres for every single game title listed in the sheet**.

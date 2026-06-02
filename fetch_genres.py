@@ -64,18 +64,22 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
     reader = csv.DictReader(infile)
     fieldnames = reader.fieldnames if reader.fieldnames else []
     
-    # Determine column insertion index dynamically based on spreadsheet width
+    # Determine column insertion index dynamically
     if "Genre" not in fieldnames:
-        if len(fieldnames) >= 3:
-            # Place as the 4th column (index 3)
+        if "Episode #" in fieldnames:
+            # Find the dynamic index of "Episode #" and place "Genre" right before it
+            episode_index = fieldnames.index("Episode #")
+            output_fields = fieldnames[:episode_index] + ["Genre"] + fieldnames[episode_index:]
+        elif len(fieldnames) >= 3:
+            # Fallback if Episode # is missing but sheet is wide
             output_fields = fieldnames[:3] + ["Genre"] + fieldnames[3:]
         else:
-            # Place as the last column for thin sheets
+            # Fallback for small/thin sheets
             output_fields = fieldnames + ["Genre"]
     else:
         output_fields = fieldnames
 
-    # Determine if we have a valid Episode filtering column
+    # Track if we need to filter by Episode status
     has_episode_column = "Episode #" in fieldnames
 
     with open(OUTPUT_CSV, mode='w', encoding='utf-8', newline='') as outfile:
@@ -97,8 +101,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                 writer.writerow(row)
                 continue
             
-            # Scenario Filter: If Episode column exists, apply the blank validation rule.
-            # If it doesn't exist, process every single game row automatically.
+            # Scenario Filter: Validate by Episode status only if column exists
             if has_episode_column:
                 episode = row.get("Episode #")
                 if not episode or episode.strip() in ("", "-", "None"):
