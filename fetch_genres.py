@@ -14,7 +14,7 @@ if not CLIENT_ID or not CLIENT_SECRET:
     sys.exit(1)
 
 # --- Step 1: Prompt the User for Input File ---
-INPUT_CSV = input("Enter the input CSV filename (e.g., Games.csv): ").strip()
+INPUT_CSV = input("Enter the input CSV filename (e.g., KensGames.csv): ").strip()
 
 if not os.path.exists(INPUT_CSV):
     print(f"Error: The file '{INPUT_CSV}' could not be found in the current directory.")
@@ -76,19 +76,15 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
     # Determine column insertion index dynamically
     if "Genre" not in fieldnames:
         if "Episode #" in fieldnames:
-            # Find the dynamic index of "Episode #" and place "Genre" right before it
             episode_index = fieldnames.index("Episode #")
             output_fields = fieldnames[:episode_index] + ["Genre"] + fieldnames[episode_index:]
         elif len(fieldnames) >= 3:
-            # Fallback if Episode # is missing but sheet is wide
             output_fields = fieldnames[:3] + ["Genre"] + fieldnames[3:]
         else:
-            # Place as the last column for thin sheets
             output_fields = fieldnames + ["Genre"]
     else:
         output_fields = fieldnames
 
-    # Determine if we have a valid Episode filtering column
     has_episode_column = "Episode #" in fieldnames
 
     with open(OUTPUT_CSV, mode='w', encoding='utf-8', newline='') as outfile:
@@ -110,8 +106,6 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                 writer.writerow(row)
                 continue
             
-            # Scenario Filter: Validate by Episode status only if column exists
-            # If it doesn't exist, process every single game row automatically.
             if has_episode_column:
                 episode = row.get("Episode #")
                 if not episode or episode.strip() in ("", "-", "None"):
@@ -120,20 +114,30 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                     continue
             
             game_title = title.strip()
-            body = f'search "{game_title}"; fields name, genres.name; limit 1;'
             
-            data = query_igdb_with_retry(body)
+            # --- STAGE 1: Exact Match (High Precision) ---
+            # Looks for the strict text match on IGDB's index search engine
+            body_exact = f'search "{game_title}"; fields name, genres.name; limit 1;'
+            data = query_igdb_with_retry(body_exact)
+            match_type = "Exact"
+            
+            # --- STAGE 2: Fuzzy Match Fallback (Handles Missing Colons/Hyphens) ---
+            # Runs ONLY if the exact match fails to find anything
+            if not data:
+                body_fuzzy = f'fields name, genres.name; where name ~ *"{game_title}"*; limit 1;'
+                data = query_igdb_with_retry(body_fuzzy)
+                match_type = "Fuzzy"
+            
             genre_str = ""
-            
             if data:
                 matched_game = data[0]
                 if "genres" in matched_game:
                     genres = [g["name"] for g in matched_game["genres"]]
                     genre_str = ", ".join(genres)
-                    print(f"🎮 {game_title} ➡️  [{genre_str}]")
+                    print(f"🎮 {game_title} ➡️  [{genre_str}] ({match_type} Match: {matched_game['name']})")
                 else:
                     genre_str = "No genre data available"
-                    print(f"🎮 {game_title} ➡️  [No genre found]")
+                    print(f"🎮 {game_title} ➡️  [No genre found via {match_type}]")
             else:
                 print(f"❌ {game_title} ➡️  No Match found on IGDB")
                 genre_str = "Unknown"
