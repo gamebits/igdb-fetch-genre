@@ -6,7 +6,7 @@ It was vibe-coded by Ken Gagne using Google Gemini for use with the _[New Game P
 
 ## Terminal Prerequisites
 
-Before running this utility, ensure that your local macOS Terminal environment has the following prerequisites configured (installation of these components is out of scope for this guide):
+Before running this utility, ensure that your local terminal environment has the following prerequisites configured (installation of these components is out of scope for this guide):
 
 * **zsh Shell:** A functional Terminal instance running the standard `zsh` shell binary.
 * **Python 3:** An accessible local installation of Python (v3.x).
