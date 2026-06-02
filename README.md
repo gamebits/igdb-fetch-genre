@@ -49,11 +49,25 @@ The utility dynamically detects the shape of your CSV file and alters its parsin
 
 #### Layout A: Multi-Column List (With Episode Filtering)
 If your CSV contains multiple columns and specifically includes a column titled `Episode #`, the script activates its filtering engine. It will **only query IGDB for rows that have a valid episode number assigned**. Any rows with a blank, `-`, or missing `Episode #` column are skipped to protect API limits.
-* **Genre Insertion:** Because the spreadsheet has three or more columns, the new `Genre` column is cleanly injected to a new column immediately before the `Episode #` column, preserving the layout and content of the preceding and trailing columns.
+* **Genre Insertion:** Because the spreadsheet has three or more columns, the new `Genre` column is cleanly inserted as a new column immediately before the `Episode #` column, preserving the layout and content of the preceding and trailing columns.
 
 #### Layout B: Thin/Single-Column List (Full Bulk Query)
 If your CSV is stripped down (e.g., a simple list of raw game titles with fewer than three columns total) or lacks an `Episode #` column entirely, the filtering logic automatically turns off. The script will **bulk query and fetch genres for every single game title listed in the sheet**.
 * **Genre Insertion:** Because the spreadsheet lacks the padding of a full list, the new `Genre` column is safely appended as the **very last column** of the file.
+
+---
+
+### Metadata Detection & Query Precision
+
+The utility detects and leverages optional metadata columns to drastically improve search accuracy and eliminate false positives (such as matching a retro game with a modern sequel or subtitle expansion). 
+
+#### 1. "Date" Column (The Search Filter)
+* **How it is used:** If a column named `Date` is present and contains a valid 4-digit year (e.g., `1994`), the script treats this as the primary chronological anchor. It will execute an initial **Exact Year Search** targeting only games released in that specific year. If no valid match is found, it automatically drops down to a **Year Window Fallback Search** checking a strict 3-year sliding window ($\pm 1$ year from the target date). 
+* **If missing or blank:** The script skips chronological scoping entirely and bypasses the year-window validation guards. It falls back to a broad database text search, querying the title globally across all eras.
+
+#### 2. "Original System" Column (The Tie-Breaker)
+* **How it is used:** If a column named `Original System` is present, its content acts as the ultimate platform filter during candidate evaluation. The script runs the spreadsheet value through an internal alias translator (e.g., expanding `NES` to `"Nintendo Entertainment System"` or `GENESIS` to `"Sega Genesis"` or `"Mega Drive"`) and requires any matching candidate from the API to exist on that platform layout to pass strict evaluation passes.
+* **If missing or blank:** Platform validation constraints are disabled. The script relies purely on text similarity scoring across global database records, which can increase the likelihood of naming collisions on highly common words or franchise names.
 
 ---
 
