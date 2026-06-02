@@ -2,7 +2,7 @@
 
 This utility reads a local game collection list from a CSV spreadsheet, filters out rows lacking a broadcast episode number, queries the **IGDB API** via the Twitch Developer Portal to match video game titles, extracts their official genres, and logs everything to an updated CSV spreadsheet.
 
-It was vibe-coded by Ken Gagne using Google Gemini for use with the _[New Game Plus](https://ngppodcast.com/) podcast's [Retro Master List](https://bit.ly/RetroML), but it can be adapted to any use case or CSV.
+It was vibe-coded by Ken Gagne using Google Gemini for use with the _[New Game Plus](https://ngppodcast.com/)_ podcast's [Retro Master List](https://bit.ly/RetroML), but it can be adapted to any use case or CSV.
 
 ## Terminal Prerequisites
 
