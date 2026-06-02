@@ -64,12 +64,19 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
     reader = csv.DictReader(infile)
     fieldnames = reader.fieldnames if reader.fieldnames else []
     
-    # Rearrange the fields to place 'Genre' as the fourth column
+    # Determine column insertion index dynamically based on spreadsheet width
     if "Genre" not in fieldnames:
-        # Inserts 'Genre' right before 'Episode #' (index 3)
-        output_fields = fieldnames[:3] + ["Genre"] + fieldnames[3:]
+        if len(fieldnames) >= 3:
+            # Place as the 4th column (index 3)
+            output_fields = fieldnames[:3] + ["Genre"] + fieldnames[3:]
+        else:
+            # Place as the last column for thin sheets
+            output_fields = fieldnames + ["Genre"]
     else:
         output_fields = fieldnames
+
+    # Determine if we have a valid Episode filtering column
+    has_episode_column = "Episode #" in fieldnames
 
     with open(OUTPUT_CSV, mode='w', encoding='utf-8', newline='') as outfile:
         writer = csv.DictWriter(outfile, fieldnames=output_fields)
@@ -79,18 +86,25 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
             
         writer.writeheader()
         
-        print("Processing matching video games and writing updates real-time...")
+        print("Processing video games and writing updates real-time...")
         print("-" * 65)
 
         for row in reader:
             title = row.get("Title")
-            episode = row.get("Episode #")
             
-            # Condition: If title is empty or Episode # column is missing/blank, bypass IGDB
-            if not title or not episode or episode.strip() in ("", "-", "None"):
+            if not title or title.strip() == "":
                 row["Genre"] = ""
                 writer.writerow(row)
                 continue
+            
+            # Scenario Filter: If Episode column exists, apply the blank validation rule.
+            # If it doesn't exist, process every single game row automatically.
+            if has_episode_column:
+                episode = row.get("Episode #")
+                if not episode or episode.strip() in ("", "-", "None"):
+                    row["Genre"] = ""
+                    writer.writerow(row)
+                    continue
             
             game_title = title.strip()
             body = f'search "{game_title}"; fields name, genres.name; limit 1;'
@@ -111,7 +125,6 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                 print(f"❌ {game_title} ➡️  No Match found on IGDB")
                 genre_str = "Unknown"
             
-            # Insert the genre into the row dictionary and write out sequentially
             row["Genre"] = genre_str
             writer.writerow(row)
 
