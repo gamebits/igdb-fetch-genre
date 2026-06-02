@@ -36,12 +36,12 @@ IGDB processes all public API integrations natively through the **Twitch Develop
 
 For the script to work flawlessly without manual path overrides, save the processing script and your target master list spreadsheet **in the exact same folder**.
 
-Use the following naming layout layout:
+Use the following naming layout:
 
 * **Target Directory Location:** `~/Desktop/ngp/` *(or any folder path of your choice)*
-* **Input Spreadsheet Filename:** The script prompts the user at execution time to identify the CSV file (e.g., `KensGames.csv` or `Retro Master List - Sheet1.csv`)
+* **Input Spreadsheet Filename:** The script prompts the user at execution time to identify the CSV file (e.g., `Games.csv` or `Retro Master List - Sheet1.csv`)
 * **Python Script Filename:** `fetch_genres.py`
-* **Generated Output Spreadsheet:** Dynamically named based on your input with `-Genres` appended (e.g., `KensGames-Genres.csv` or `Retro Master List - Sheet1-Genres.csv`) *(This file is automatically created during execution)*
+* **Generated Output Spreadsheet:** Dynamically named based on your input with `-Genres` appended (e.g., `Games-Genres.csv` or `Retro Master List - Sheet1-Genres.csv`) *(This file is automatically created during execution)*
 
 ### Expected & Acceptable Spreadsheet Layouts
 

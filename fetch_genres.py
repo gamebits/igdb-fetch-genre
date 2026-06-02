@@ -14,7 +14,7 @@ if not CLIENT_ID or not CLIENT_SECRET:
     sys.exit(1)
 
 # --- Step 1: Prompt the User for Input File ---
-INPUT_CSV = input("Enter the input CSV filename (e.g., KensGames.csv): ").strip()
+INPUT_CSV = input("Enter the input CSV filename (e.g., Games.csv): ").strip()
 
 if not os.path.exists(INPUT_CSV):
     print(f"Error: The file '{INPUT_CSV}' could not be found in the current directory.")
@@ -76,15 +76,19 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
     # Determine column insertion index dynamically
     if "Genre" not in fieldnames:
         if "Episode #" in fieldnames:
-            episode_index = fieldnames.index("Episode #")
+            # Find the dynamic index of "Episode #" and place "Genre" right before it
+                        episode_index = fieldnames.index("Episode #")
             output_fields = fieldnames[:episode_index] + ["Genre"] + fieldnames[episode_index:]
         elif len(fieldnames) >= 3:
+            # Fallback if Episode # is missing but sheet is wide
             output_fields = fieldnames[:3] + ["Genre"] + fieldnames[3:]
         else:
+            # Place as the last column for thin sheets
             output_fields = fieldnames + ["Genre"]
     else:
         output_fields = fieldnames
 
+    # Determine if we have a valid Episode filtering column
     has_episode_column = "Episode #" in fieldnames
 
     with open(OUTPUT_CSV, mode='w', encoding='utf-8', newline='') as outfile:
@@ -106,7 +110,9 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                 writer.writerow(row)
                 continue
             
-            if has_episode_column:
+            # Scenario Filter: Validate by Episode status only if column exists
+            # If it doesn't exist, process every single game row automatically.
+                if has_episode_column:
                 episode = row.get("Episode #")
                 if not episode or episode.strip() in ("", "-", "None"):
                     row["Genre"] = ""
