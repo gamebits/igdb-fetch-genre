@@ -109,6 +109,11 @@ def expand_platform_aliases(system_name):
 # --- Step 3: Stream, Filter, Query, and Write Rows ---
 print(f"Opening {INPUT_CSV} for processing...")
 
+# Initialize summary metrics tallies
+count_updated = 0
+count_no_genre = 0
+count_not_found = 0
+
 with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
     first_line = infile.readline()
     has_title_line = "Title" not in first_line
@@ -299,12 +304,15 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                     genres = [g["name"] for g in matched_game["genres"]]
                     genre_str = ", ".join(genres)
                     print(f"🎮 {game_title} ➡️  [{genre_str}] ({match_type} Match: {matched_game['name']})")
+                    count_updated += 1
                 else:
                     genre_str = "No genre data available"
                     print(f"🎮 {game_title} ➡️  [No genre found via {match_type} Match]")
+                    count_no_genre += 1
             else:
                 print(f"❌ {game_title} ➡️  No Match found on IGDB")
                 genre_str = "Unknown"
+                count_not_found += 1
             
             row["Genre"] = genre_str
             clean_row = {field: row.get(field, "") for field in output_fields}
@@ -312,5 +320,10 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
 
             time.sleep(0.25)
 
+print("-" * 65)
+print(f"📊 Summary Tally:")
+print(f"  • Games updated: {count_updated}")
+print(f"  • Games with no known genre: {count_no_genre}")
+print(f"  • Games not found in the IGDB: {count_not_found}")
 print("-" * 65)
 print(f"🎉 Success! Results written directly into: {OUTPUT_CSV}")
