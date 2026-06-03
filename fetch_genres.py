@@ -8,6 +8,8 @@ import requests
 
 # --- Configuration ---
 CLIENT_ID = os.environ.get("IGDB_CLIENT_ID")
+# --- Configuration ---
+CLIENT_ID = os.environ.get("IGDB_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("IGDB_CLIENT_SECRET")
 
 if not CLIENT_ID or not CLIENT_SECRET:
@@ -17,6 +19,16 @@ if not CLIENT_ID or not CLIENT_SECRET:
 # --- Step 1: Prompt the User for Input File ---
 INPUT_CSV = input("Enter the input CSV filename (e.g., Games.csv): ").strip()
 
+# 1. Fall back to the default filename if the user hits Enter without typing
+if not INPUT_CSV:
+    INPUT_CSV = "Games.csv"
+
+# 2. Automatically append .csv if the base name doesn't exist and lacks an extension
+if not os.path.exists(INPUT_CSV):
+    base, ext = os.path.splitext(INPUT_CSV)
+    if not ext and os.path.exists(f"{INPUT_CSV}.csv"):
+        INPUT_CSV = f"{INPUT_CSV}.csv"
+
 if not os.path.exists(INPUT_CSV):
     print(f"Error: The file '{INPUT_CSV}' could not be found in the current directory.")
     sys.exit(1)
@@ -24,6 +36,13 @@ if not os.path.exists(INPUT_CSV):
 # Dynamically calculate the output filename based on the input name
 file_base, file_ext = os.path.splitext(INPUT_CSV)
 OUTPUT_CSV = f"{file_base}-Genres{file_ext}"
+
+# 3. Guard against accidental file destruction by prompting for overwrite confirmation
+if os.path.exists(OUTPUT_CSV):
+    overwrite = input(f"⚠️ Warning: '{OUTPUT_CSV}' already exists. Overwrite? [y/N]: ").strip().lower()
+    if overwrite not in ('y', 'yes'):
+        print("Operation cancelled. Exiting script.")
+        sys.exit(0)
 
 # --- Step 2: Authenticate with Twitch OAuth2 ---
 print("Authenticating with Twitch OAuth2...")
