@@ -112,6 +112,7 @@ print(f"Opening {INPUT_CSV} for processing...")
 # Initialize highly granular multi-variable metrics engine
 count_not_found = 0
 count_total_successfully_updated_rows = 0
+count_skipped_no_episode = 0
 
 genres_updated = 0
 genres_no_data = 0
@@ -182,6 +183,14 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
             print("Operation aborted by user.")
             sys.exit(0)
 
+    # Prompt user for episode filtering configuration if column is present (defaults to Yes)
+    has_episode_column = episode_key in fieldnames
+    filter_by_episode = True
+    if has_episode_column:
+        episode_confirm = input("Process only existing episodes? [Y/n]: ").strip().lower()
+        if episode_confirm in ('n', 'no'):
+            filter_by_episode = False
+
     output_fields = list(fieldnames)
     
     # Determine column insertion index dynamically if Genre column didn't explicitly exist
@@ -194,7 +203,21 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
         genre_key = "Genre"
 
     # Pre-calculate row list to establish accurate total tracking indices
-    rows_list = list(reader)
+    raw_rows_list = list(reader)
+    rows_list = []
+    
+    # Context-aware pre-filtering loop step to lock incremental tallies exactly to the active scope
+    for raw_row in raw_rows_list:
+        # Clean all incoming row dictionary keys to remove BOM prefixes cleanly
+        row = {k.replace("\xef\xbb\xbf", "").strip(): v for k, v in raw_row.items() if k is not None}
+        
+        if has_episode_column and filter_by_episode:
+            episode = row.get(episode_key)
+            if not episode or episode.strip() in ("", "-", "None"):
+                count_skipped_no_episode += 1
+                continue
+        rows_list.append(row)
+        
     total_games = len(rows_list)
 
     # Build optimized payload field string
@@ -209,11 +232,11 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
         ])
     fields_payload = ", ".join(query_fields)
 
-    has_episode_column = episode_key in fieldnames
     has_date_column = date_key in fieldnames
     has_system_column = system_key in fieldnames
 
     with open(OUTPUT_CSV, mode='w', encoding='utf-8', newline='') as outfile:
+        # If any rows were discarded via pre-filtering, we write them back unchanged during clean output generation
         writer = csv.DictWriter(outfile, fieldnames=output_fields, extrasaction='ignore')
         
         if has_title_line:
@@ -221,13 +244,21 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
             
         writer.writeheader()
         
+        # Phase 1: Write back out rows skipped by episode filter mechanics
+        if has_episode_column and filter_by_episode:
+            for raw_row in raw_rows_list:
+                row = {k.replace("\xef\xbb\xbf", "").strip(): v for k, v in raw_row.items() if k is not None}
+                episode = row.get(episode_key)
+                if not episode or episode.strip() in ("", "-", "None"):
+                    if has_genre_col and genre_key not in row:
+                        row[genre_key] = ""
+                    clean_row = {field: row.get(field, "") for field in output_fields}
+                    writer.writerow(clean_row)
+
         print("\nProcessing video games and writing updates real-time...")
         print("-" * 65)
 
-        for index, raw_row in enumerate(rows_list, start=1):
-            # Clean all incoming row dictionary keys to remove BOM prefixes cleanly
-            row = {k.replace("\xef\xbb\xbf", "").strip(): v for k, v in raw_row.items() if k is not None}
-
+        for index, row in enumerate(rows_list, start=1):
             # Dynamic lookup fallback for the title field
             title = None
             for key, val in row.items():
@@ -242,13 +273,6 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                 clean_row = {field: row.get(field, "") for field in output_fields}
                 writer.writerow(clean_row)
                 continue
-            
-            if has_episode_column:
-                episode = row.get(episode_key)
-                if not episode or episode.strip() in ("", "-", "None"):
-                    clean_row = {field: row.get(field, "") for field in output_fields}
-                    writer.writerow(clean_row)
-                    continue
 
             # Ensure the row dictionary physically contains a tracking placeholder if Genre was dynamically injected
             if has_genre_col and genre_key not in row:
@@ -535,6 +559,8 @@ if has_release_date_col:
 
 print()  # Visual break before global error counts
 print(f"  • Global titles completely missing from IGDB index: {count_not_found}")
+if has_episode_column and filter_by_episode:
+    print(f"  • Games skipped (no assigned episode number): {count_skipped_no_episode}")
 print(f"  • Total games updated: {count_total_successfully_updated_rows} out of {total_games}")
 print("-" * 65)
 print(f"🎉 Success! Results written directly into: {OUTPUT_CSV}")

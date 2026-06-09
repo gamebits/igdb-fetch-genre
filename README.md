@@ -62,6 +62,13 @@ The script actively scans your spreadsheet headers for the presence of `Genre`, 
 * **Target Enrichment:** If any combination of these columns is found, the script flags them as active targets. At startup, it displays the discovered structure and prompts for explicit processing confirmation before querying the API.
 * **Selective Genre Column Injection:** If the `Genre` column is missing from your header row, it will **only** be dynamically added if all other metadata targets (`Publisher`, `Developer`, and `Release Date`) are also completely missing from the sheet. 
 
+#### Episode Tracking & Interactive Filtering
+If the spreadsheet contains either an `Episode #` or `Episode` column, the script automatically enables an interactive workflow configuration choice at startup:
+
+* **Interactive Scope Filter Prompt:** The tool pauses and asks the operator: `Process only existing episodes? [Y/n]: `
+* **Filtering Mode (Default / 'Yes'):** Pressing Enter or typing `y`/`yes` limits the script context exclusively to rows that have an active episode identifier. Rows without numbers (blank cells, `-`, or `None`) are cleanly bypassed during the lookup pass and written back out to the final document without using up API query limits. Under this mode, all real-time terminal progress indicators scale matching contexts directly to this subset (e.g., `(1/1)` rows instead of processing the entire sheet size).
+* **Unrestricted Mode ('No'):** Submitting `n`/`no` deactivates the guard completely. The script processes every single entry in the list chronologically from top to bottom, regardless of whether an episode key is assigned.
+
 #### Target Fallback: Failsafe Routine (Genre-Only Mode)
 If your spreadsheet lacks all four primary metadata headers entirely (e.g., it is a simple list consisting exclusively of raw game titles), or explicitly requests only `Genre`, the utility automatically stabilizes the layout:
 
