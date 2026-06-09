@@ -8,8 +8,6 @@ import requests
 
 # --- Configuration ---
 CLIENT_ID = os.environ.get("IGDB_CLIENT_ID")
-# --- Configuration ---
-CLIENT_ID = os.environ.get("IGDB_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("IGDB_CLIENT_SECRET")
 
 missing_vars = []
@@ -122,18 +120,22 @@ count_skipped_no_episode = 0
 
 genres_updated = 0
 genres_no_data = 0
+genres_missing_index = 0
 genres_skipped = 0
 
 publishers_updated = 0
 publishers_no_data = 0
+publishers_missing_index = 0
 publishers_skipped = 0
 
 developers_updated = 0
 developers_no_data = 0
+developers_missing_index = 0
 developers_skipped = 0
 
 dates_updated = 0
 dates_no_data = 0
+dates_missing_index = 0
 dates_skipped = 0
 
 with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
@@ -520,16 +522,16 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                 print(f"❌ ({index}/{total_games}) {game_title} ➡️  No Match found on IGDB")
                 if has_genre_col and needs_genre:
                     row[genre_key] = "Unknown"
-                    genres_no_data += 1
+                    genres_missing_index += 1
                 if has_publisher_col and needs_pub:
                     row[pub_key] = "Unknown"
-                    publishers_no_data += 1
+                    publishers_missing_index += 1
                 if has_developer_col and needs_dev:
                     row[dev_key] = "Unknown"
-                    developers_no_data += 1
+                    developers_missing_index += 1
                 if has_release_date_col and needs_date:
                     row[rel_date_key] = "Unknown"
-                    dates_no_data += 1
+                    dates_missing_index += 1
                 count_not_found += 1
             
             clean_row = {field: row.get(field, "") for field in output_fields}
@@ -542,25 +544,29 @@ print(f"📊 Summary Metric Tallies:")
 
 if has_genre_col:
     print(f"  • Genres updated: {genres_updated}")
-    print(f"  • Games with no known genre: {genres_no_data}")
+    print(f"  • Games found with no genre context listed: {genres_no_data}")
+    print(f"  • Genre requests missing entirely from IGDB index: {genres_missing_index}")
     print(f"  • Genre entries skipped (pre-populated): {genres_skipped}")
 
 if has_publisher_col:
     print()  # Visual break between categories
     print(f"  • Publishers updated: {publishers_updated}")
-    print(f"  • Games with no known publisher: {publishers_no_data}")
+    print(f"  • Games found with no publisher context listed: {publishers_no_data}")
+    print(f"  • Publisher requests missing entirely from IGDB index: {publishers_missing_index}")
     print(f"  • Publisher entries skipped (pre-populated): {publishers_skipped}")
 
 if has_developer_col:
     print()  # Visual break between categories
     print(f"  • Developers updated: {developers_updated}")
-    print(f"  • Games with no known developer: {developers_no_data}")
+    print(f"  • Games found with no developer context listed: {developers_no_data}")
+    print(f"  • Developer requests missing entirely from IGDB index: {developers_missing_index}")
     print(f"  • Developer entries skipped (pre-populated): {developers_skipped}")
 
 if has_release_date_col:
     print()  # Visual break between categories
     print(f"  • Release Dates updated: {dates_updated}")
-    print(f"  • Games with no known release date: {dates_no_data}")
+    print(f"  • Games found with no release date context listed: {dates_no_data}")
+    print(f"  • Release Date requests missing entirely from IGDB index: {dates_missing_index}")
     print(f"  • Release Date entries skipped (pre-populated): {dates_skipped}")
 
 print()  # Visual break before global error counts
