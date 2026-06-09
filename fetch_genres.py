@@ -41,13 +41,6 @@ if not os.path.exists(INPUT_CSV):
 file_base, file_ext = os.path.splitext(INPUT_CSV)
 OUTPUT_CSV = f"{file_base}-Genres{file_ext}"
 
-# 3. Guard against accidental file destruction by prompting for overwrite confirmation
-if os.path.exists(OUTPUT_CSV):
-    overwrite = input(f"⚠️ Warning: '{OUTPUT_CSV}' already exists. Overwrite? [y/N]: ").strip().lower()
-    if overwrite not in ('y', 'yes'):
-        print("Operation cancelled. Exiting script.")
-        sys.exit(0)
-
 # --- Step 2: Authenticate with Twitch OAuth2 ---
 print("Authenticating with Twitch OAuth2...")
 auth_url = f"https://id.twitch.tv/oauth2/token?client_id={CLIENT_ID}&client_secret={CLIENT_SECRET}&grant_type=client_credentials"
@@ -70,7 +63,7 @@ def query_igdb_with_retry(query_body, max_retries=5):
     delay = 1.0
     for attempt in range(max_retries):
         response = requests.post("https://api.igdb.com/v4/games", headers=headers, data=query_body)
-        
+
         if response.status_code == 200:
             return response.json()
         elif response.status_code == 429:
@@ -142,14 +135,14 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
     first_line = infile.readline()
     has_title_line = "Title" not in first_line
     infile.seek(0)
-    
+
     if has_title_line:
         title_line = infile.readline()
-        
+
     reader = csv.DictReader(infile)
     # Clean up hidden header artifacts cleanly right at the moment fieldnames are parsed
     fieldnames = [f.replace("\xef\xbb\xbf", "").strip() for f in reader.fieldnames] if reader.fieldnames else []
-    
+
     # --- METADATA HEADER DETECTOR PASS ---
     has_genre_col = any(f.lower() == "genre" for f in fieldnames)
     has_release_date_col = any(f.lower() == "release date" for f in fieldnames)
@@ -160,10 +153,10 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
     genre_key = next((f for f in fieldnames if f.lower() == "genre"), "Genre")
     date_key = next((f for f in fieldnames if f.lower() == "date"), "Date")
     system_key = next((f for f in fieldnames if f.lower() == "original system"), "Original System")
-    
+
     # Interchangeable filter alignment lookup: dynamically pair either 'Episode' or 'Episode #' variations
     episode_key = next((f for f in fieldnames if f.lower() in ("episode #", "episode")), "Episode #")
-    
+
     pub_key = next((f for f in fieldnames if f.lower() == "publisher"), "Publisher")
     dev_key = next((f for f in fieldnames if f.lower() == "developer"), "Developer")
     rel_date_key = next((f for f in fieldnames if f.lower() == "release date"), "Release Date")
@@ -199,8 +192,20 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
         if episode_confirm in ('n', 'no'):
             filter_by_episode = False
 
+    # Final prompt offering a dry-run alternative right before operations begin
+    dry_run_confirm = input("Perform a dry run? (Stream updates but do not write to file) [y/N]: ").strip().lower()
+    is_dry_run = dry_run_confirm in ('y', 'yes')
+
+    # # 3. Guard against accidental file destruction by prompting for overwrite confirmation
+    # Executed ONLY if this instance intends to overwrite or commit new binary layout blocks to local paths
+    if not is_dry_run and os.path.exists(OUTPUT_CSV):
+        overwrite = input(f"⚠️ Warning: '{OUTPUT_CSV}' already exists. Overwrite? [y/N]: ").strip().lower()
+        if overwrite not in ('y', 'yes'):
+            print("Operation cancelled. Exiting script.")
+            sys.exit(0)
+
     output_fields = list(fieldnames)
-    
+
     # Determine column insertion index dynamically if Genre column didn't explicitly exist
     if has_genre_col and genre_key not in output_fields:
         if episode_key in fieldnames:
@@ -213,19 +218,19 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
     # Pre-calculate row list to establish accurate total tracking indices
     raw_rows_list = list(reader)
     rows_list = []
-    
+
     # Context-aware pre-filtering loop step to lock incremental tallies exactly to the active scope
     for raw_row in raw_rows_list:
         # Clean all incoming row dictionary keys to remove BOM prefixes cleanly
         row = {k.replace("\xef\xbb\xbf", "").strip(): v for k, v in raw_row.items() if k is not None}
-        
+
         if has_episode_column and filter_by_episode:
             episode = row.get(episode_key)
             if not episode or episode.strip() in ("", "-", "None"):
                 count_skipped_no_episode += 1
                 continue
         rows_list.append(row)
-        
+
     total_games = len(rows_list)
 
     # Build optimized payload field string
@@ -243,16 +248,21 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
     has_date_column = date_key in fieldnames
     has_system_column = system_key in fieldnames
 
-    with open(OUTPUT_CSV, mode='w', encoding='utf-8', newline='') as outfile:
-        # If any rows were discarded via pre-filtering, we write them back unchanged during clean output generation
+    # Helper wrapper to conditionally handle file lifecycle execution safely
+    class DummyWriter:
+        def writerow(self, row): pass
+
+    outfile = None
+    writer = DummyWriter()
+
+    if not is_dry_run:
+        outfile = open(OUTPUT_CSV, mode='w', encoding='utf-8', newline='')
         writer = csv.DictWriter(outfile, fieldnames=output_fields, extrasaction='ignore')
-        
         if has_title_line:
             outfile.write(title_line)
-            
         writer.writeheader()
-        
-        # Phase 1: Write back out rows skipped by episode filter mechanics
+
+        # Phase 1: Write back out rows skipped by episode filter mechanics if actively performing mutations
         if has_episode_column and filter_by_episode:
             for raw_row in raw_rows_list:
                 row = {k.replace("\xef\xbb\xbf", "").strip(): v for k, v in raw_row.items() if k is not None}
@@ -263,7 +273,8 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                     clean_row = {field: row.get(field, "") for field in output_fields}
                     writer.writerow(clean_row)
 
-        print("\nProcessing video games and writing updates real-time...")
+    try:
+        print(f"\nProcessing video games and writing updates real-time...{' [DRY RUN MODE]' if is_dry_run else ''}")
         print("-" * 65)
 
         for index, row in enumerate(rows_list, start=1):
@@ -273,10 +284,10 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                 if key and key.lower() == "title":
                     title = val
                     break
-            
+
             year = row.get(date_key, "").strip() if has_date_column else ""
             system = row.get(system_key, "").strip() if has_system_column else ""
-            
+
             if not title or title.strip() == "":
                 clean_row = {field: row.get(field, "") for field in output_fields}
                 writer.writerow(clean_row)
@@ -306,22 +317,22 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                     clean_row = {field: row.get(field, "") for field in output_fields}
                     writer.writerow(clean_row)
                     continue
-            
+
             # Clean up raw text encoding artifacts entirely
             game_title = title.strip()
             search_title = game_title.replace("√©", "e").replace("‚Äôs", "'").replace("‚Äô", "'")
             target_norm = normalize_string(search_title)
-            
+
             candidates = None
             match_type = "Search"
-            
+
             # --- STAGE 1A: Exact Target Year Search ---
             # Prioritize an exact, precise year query match first to stop adjacent year companion title leakage
             if year and year.isdigit() and len(year) == 4:
                 body_exact_year = f'search "{search_title}"; fields {fields_payload}; where release_dates.y = {year}; limit 20;'
                 candidates = query_igdb_with_retry(body_exact_year)
                 match_type = f"Exact Year [{year}]"
-                
+
                 # Validation Guard: Reject the exact year candidate pool if the top search result is a false positive
                 if candidates:
                     top_cand_norm = normalize_string(candidates[0].get("name", ""))
@@ -338,7 +349,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                 body_year = f'search "{search_title}"; fields {fields_payload}; where release_dates.y >= {min_year} & release_dates.y <= {max_year}; limit 20;'
                 candidates = query_igdb_with_retry(body_year)
                 match_type = f"Year Window [{min_year}-{max_year}]"
-                
+
                 # Validation Guard: Discard the window pool if the top search result lacks names similarity entirely
                 if candidates:
                     top_cand_norm = normalize_string(candidates[0].get("name", ""))
@@ -351,17 +362,17 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                 body_exact = f'search "{search_title}"; fields {fields_payload}; limit 20;'
                 candidates = query_igdb_with_retry(body_exact)
                 match_type = "Standard Search"
-            
+
             # --- STAGE 3: Fuzzy Wildcard Fallback ---
             if not candidates:
                 fuzzy_title = target_norm
                 body_fuzzy = f'fields {fields_payload}; where name ~ *"{fuzzy_title}"*; limit 20;'
                 candidates = query_igdb_with_retry(body_fuzzy)
                 match_type = "Fuzzy"
-                
+
             # --- STAGE 4: Best Candidate Evaluation Loop ---
             matched_game = None
-            
+
             if candidates:
                 allowed_platforms = [normalize_string(p) for p in expand_platform_aliases(system)] if system else []
 
@@ -371,7 +382,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                         cand_norm = normalize_string(candidate.get("name", ""))
                         if cand_norm == target_norm:
                             cand_platforms = candidate.get("platforms", [])
-                            for plat in cand_platforms:
+                            for plat in candidate.get("platforms", []):
                                 plat_norm = normalize_string(plat.get("name", ""))
                                 if any(alias in plat_norm or plat_norm in alias for alias in allowed_platforms):
                                     matched_game = candidate
@@ -393,16 +404,16 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                         cand_name = candidate.get("name", "")
                         cand_norm = normalize_string(cand_name)
                         ratio = SequenceMatcher(None, target_norm, cand_norm).ratio()
-                        
+
                         # Strict whole word boundaries limit false-positive sequence matches
                         cand_words = cand_name.lower().replace(":", "").replace("-", "").split()
                         target_words = search_title.lower().replace(":", "").replace("-", "").split()
-                        
+
                         is_valid_word_match = any(w in cand_words for w in target_words)
-                        
+
                         if (target_norm in cand_norm or cand_norm in target_norm) and not matched_game:
                             ratio = max(ratio, 0.75)
-                            
+
                         if is_valid_word_match and ratio > 0.50 and ratio > best_ratio:
                             cand_platforms = candidate.get("platforms", [])
                             for plat in cand_platforms:
@@ -419,21 +430,21 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                         cand_name = candidate.get("name", "")
                         cand_norm = normalize_string(cand_name)
                         ratio = SequenceMatcher(None, target_norm, cand_norm).ratio()
-                        
+
                         cand_words = cand_name.lower().replace(":", "").replace("-", "").split()
                         target_words = search_title.lower().replace(":", "").replace("-", "").split()
                         is_valid_word_match = any(w in cand_words for w in target_words)
-                        
+
                         if (target_norm in cand_norm or cand_norm in target_norm):
                             ratio = max(ratio, 0.75)
                         if is_valid_word_match and ratio > 0.50 and ratio > best_ratio:
                             matched_game = candidate
                             best_ratio = ratio
-                
+
                 # 3rd Priority: Default to first entry if strict filters exclude everything
                 if not matched_game:
                     matched_game = candidates[0]
-                
+
                 # --- METADATA EXTRACTION AND SAFE PRESERVATION INJECTION ---
                 log_components = []
                 row_had_active_updates = False
@@ -533,11 +544,14 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                     row[rel_date_key] = "Unknown"
                     dates_missing_index += 1
                 count_not_found += 1
-            
+
             clean_row = {field: row.get(field, "") for field in output_fields}
             writer.writerow(clean_row)
 
             time.sleep(0.25)
+    finally:
+        if outfile:
+            outfile.close()
 
 print("-" * 65)
 print(f"📊 Summary Metric Tallies:")
@@ -575,4 +589,8 @@ if has_episode_column and filter_by_episode:
     print(f"  • Games skipped (no assigned episode number): {count_skipped_no_episode}")
 print(f"  • Total games updated: {count_total_successfully_updated_rows} out of {total_games}")
 print("-" * 65)
-print(f"🎉 Success! Results written directly into: {OUTPUT_CSV}")
+
+if is_dry_run:
+    print("🏁 Dry run complete! No mutations or output files were written.")
+else:
+    print(f"🎉 Success! Results written directly into: {OUTPUT_CSV}")
