@@ -14,7 +14,7 @@ missing_vars = []
 if not CLIENT_ID:
     missing_vars.append("IGDB_CLIENT_ID")
 if not CLIENT_SECRET:
-    missing_vars.append("CLIENT_SECRET")
+    missing_vars.append("IGDB_CLIENT_SECRET")
 
 if missing_vars:
     print(f"Error: Please set the following environment variable(s): {', '.join(missing_vars)}.")
