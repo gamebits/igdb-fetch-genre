@@ -12,8 +12,14 @@ CLIENT_ID = os.environ.get("IGDB_CLIENT_ID")
 CLIENT_ID = os.environ.get("IGDB_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("IGDB_CLIENT_SECRET")
 
-if not CLIENT_ID or not CLIENT_SECRET:
-    print("Error: Please set IGDB_CLIENT_ID and CLIENT_SECRET environment variables.")
+missing_vars = []
+if not CLIENT_ID:
+    missing_vars.append("IGDB_CLIENT_ID")
+if not CLIENT_SECRET:
+    missing_vars.append("IGDB_CLIENT_SECRET")
+
+if missing_vars:
+    print(f"Error: Please set the following environment variable(s): {', '.join(missing_vars)}.")
     sys.exit(1)
 
 # --- Step 1: Prompt the User for Input File ---
