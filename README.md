@@ -1,6 +1,6 @@
 # IGDB Game Genre Fetcher Utility
 
-This utility reads a game collection list from a CSV spreadsheet, queries the **IGDB API** via the Twitch Developer Portal to match video game titles, extracts their official genres, and logs everything to an updated CSV spreadsheet.
+This utility reads a game collection list from a CSV spreadsheet, queries the **IGDB API** via the Twitch Developer Portal to match video game titles, extracts their metadata (release date, publisher, developer, and genre), and logs everything to an updated CSV spreadsheet.
 
 It was vibe-coded by Ken Gagne using Google Gemini for use with the _[New Game Plus](https://ngppodcast.com/)_ podcast's [Retro Master List](https://bit.ly/RetroML), but it can be adapted to any use case or CSV.
 
@@ -60,10 +60,10 @@ The utility features an **Implicit Schema ("Detect and Inject")** workflow. Rath
 The script actively scans your spreadsheet headers for the presence of `Genre`, `Release Date`, `Publisher`, and `Developer`. 
 
 * **Target Enrichment:** If any combination of these columns is found, the script flags them as active targets. At startup, it displays the discovered structure and prompts for explicit processing confirmation before querying the API.
-* **Selective Genre Column Injection:** If the `Genre` column is missing from your header row, it will **only** be dynamically added if all other metadata targets (`Publisher`, `Developer`, and `Release Date`) are also completely missing from the sheet. 
+* **Selective Genre Column Injection:** If all metadata targets (`Genre`, `Publisher`, `Developer`, and `Release Date`) are completely missing from the sheet, a `Genre` column will be dynamically added (either before the `Episode` column if present, or to the end of the spreadsheet if not).
 
 #### Episode Tracking & Interactive Filtering
-If the spreadsheet contains either an `Episode #` or `Episode` column, the script automatically enables an interactive workflow configuration choice at startup:
+If the spreadsheet contains either an `Episode` or `Episode #` column, the script automatically enables an interactive workflow configuration choice at startup:
 
 * **Interactive Scope Filter Prompt:** The tool pauses and asks the operator: `Process only existing episodes? [Y/n]: `
 * **Filtering Mode (Default / 'Yes'):** Pressing Enter or typing `y`/`yes` limits the script context exclusively to rows that have an active episode identifier. Rows without numbers (blank cells, `-`, or `None`) are cleanly bypassed during the lookup pass and written back out to the final document without using up API query limits. Under this mode, all real-time terminal progress indicators scale matching contexts directly to this subset (e.g., `(1/1)` rows instead of processing the entire sheet size).
@@ -71,8 +71,6 @@ If the spreadsheet contains either an `Episode #` or `Episode` column, the scrip
 
 #### Target Fallback: Failsafe Routine (Genre-Only Mode)
 If your spreadsheet lacks all four primary metadata headers entirely (e.g., it is a simple list consisting exclusively of raw game titles), or explicitly requests only `Genre`, the utility automatically stabilizes the layout:
-
-* **Default Extraction Alignment:** It operates in a **Genre-only** extraction mode and prompts you for validation before continuing. If a new `Genre` column needs to be created, the script checks your file for an `Episode #` or `Episode` column. If either variation is present, the new `Genre` column is cleanly injected immediately to its left. If no episode tracking column exists, it is safely appended as the very last column on the far right of your generated file.
 
 ---
 
