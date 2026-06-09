@@ -39,21 +39,33 @@ For the script to work flawlessly without manual path overrides, save the proces
 Use the following naming layout:
 
 * **Target Directory Location:** `~/Desktop/ngp/` *(or any folder path of your choice)*
-* **Input Spreadsheet Filename:** The script prompts the user at execution time to identify the CSV file (e.g., `Games.csv` or `Retro Master List - Sheet1.csv`)
+* **Input Spreadsheet Filename:** The script prompts the user at execution time to identify the CSV file. If no name is typed and you press Enter, it automatically defaults to `Games.csv`. If you type a filename without an extension (e.g., `Games`) and it doesn't exist, the script will automatically append `.csv` and try to read it before throwing an error.
 * **Python Script Filename:** `fetch_genres.py`
-* **Generated Output Spreadsheet:** Dynamically named based on your input with `-Genres` appended (e.g., `Games-Genres.csv` or `Retro Master List - Sheet1-Genres.csv`) *(This file is automatically created during execution)*
+* **Generated Output Spreadsheet:** Dynamically named based on your input with `-Genres` appended (e.g., `Games-Genres.csv` or `outliers-Genres.csv`). This file is automatically created during execution.
+
+### Overwrite Safeguard
+If the script detects that the output file (e.g., `Games-Genres.csv`) already exists in the folder, it will pause and prompt for explicit permission before overwriting anything:
+
+```
+⚠️ Warning: 'Games-Genres.csv' already exists. Overwrite? [y/N]:
+```
+
+If you decline or press Enter, the operation cancels cleanly without losing data.
 
 ### Expected & Acceptable Spreadsheet Layouts
 
-The utility dynamically detects the shape of your CSV file and alters its parsing rules based on two acceptable formats:
+The utility features an **Implicit Schema ("Detect and Inject")** workflow. Rather than requiring a static or rigid table setup, it dynamically alters its behavior based on which specific column headers it finds inside your sheet:
 
-#### Layout A: Multi-Column List (With Episode Filtering)
-If your CSV contains multiple columns and specifically includes a column titled `Episode #`, the script activates its filtering engine. It will **only query IGDB for rows that have a valid episode number assigned**. Any rows with a blank, `-`, or missing `Episode #` column are skipped to protect API limits.
-* **Genre Insertion:** Because the spreadsheet has three or more columns, the new `Genre` column is cleanly inserted as a new column immediately before the `Episode #` column, preserving the layout and content of the preceding and trailing columns.
+#### Found Targets: Explicit Metadata Columns
+The script actively scans your spreadsheet headers for the presence of `Genre`, `Release Date`, `Publisher`, and `Developer`. 
 
-#### Layout B: Thin/Single-Column List (Full Bulk Query)
-If your CSV is stripped down (e.g., a simple list of raw game titles with fewer than three columns total) or lacks an `Episode #` column entirely, the filtering logic automatically turns off. The script will **bulk query and fetch genres for every single game title listed in the sheet**.
-* **Genre Insertion:** Because the spreadsheet lacks the padding of a full list, the new `Genre` column is safely appended as the **very last column** of the file.
+* **Target Enrichment:** If any combination of these columns is found, the script flags them as active targets. At startup, it displays the discovered structure and prompts for explicit processing confirmation before querying the API.
+* **Selective Genre Column Injection:** If the `Genre` column is missing from your header row, it will **only** be dynamically added if all other metadata targets (`Publisher`, `Developer`, and `Release Date`) are also completely missing from the sheet. 
+
+#### Target Fallback: Failsafe Routine (Genre-Only Mode)
+If your spreadsheet lacks all four primary metadata headers entirely (e.g., it is a simple list consisting exclusively of raw game titles), or explicitly requests only `Genre`, the utility automatically stabilizes the layout:
+
+* **Default Extraction Alignment:** It operates in a **Genre-only** extraction mode and prompts you for validation before continuing. If a new `Genre` column needs to be created, the script checks your file for an `Episode #` or `Episode` column. If either variation is present, the new `Genre` column is cleanly injected immediately to its left. If no episode tracking column exists, it is safely appended as the very last column on the far right of your generated file.
 
 ---
 
