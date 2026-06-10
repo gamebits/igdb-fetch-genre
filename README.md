@@ -116,3 +116,15 @@ export IGDB_CLIENT_SECRET="your_actual_client_secret_here"
 
 # Step 2: Execute the automation script
 python3 fetch_genres.py
+```
+
+#### Non-Destructive Exploration: The Dry Run Feature
+Right before the data retrieval pass initiates, the utility provides an interactive safeguard prompt offering a non-destructive verification mode:
+
+```text
+Perform a dry run? (Stream updates but do not write to file) [y/N]:
+```
+
+*   **Simulation Mode (y / yes):** If activated, the script executes all standard remote lookup logic, structural validation rules, and text similarity metrics. The entire two-line execution log streams to your terminal in real-time, and a complete breakdown of granular summary metrics is compiled at the end. However, **no changes are committed to disk, and no output CSV files are generated or overwritten**. This is ideal for checking API matching behaviors or testing rate limits safely.
+    
+*   **Standard Modification Mode (Default / Enter / n):** Bypasses the simulation. The script checks for local naming conflicts, prompts for overwrite confirmations if necessary, and permanently commits all recovered structural metadata directly into your newly generated output file.
