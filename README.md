@@ -118,6 +118,19 @@ export IGDB_CLIENT_SECRET="your_actual_client_secret_here"
 python3 fetch_genres.py
 ```
 
+#### Smart Post-Run Triage Engine (Optional)
+Some game titles might have multiple ambiguous matches; automatically selecting the best match might still produce the wrong result. The user can review and confirm these low-confidence matches at the end of the script.
+
+At startup, right before data gathering kicks off, the script prompts you whether to track and review these potential outliers:
+
+```text
+Manually confirm potential mismatches after the automated run? [Y/n]:
+```
+
+*   **Interactive Triage Mode Enabled (Default / Enter / y):** Borderline matches are quietly recorded during the background run. Once automation finishes, the utility alerts you if ambiguous items were flagged and opens an interactive review panel. For each item, you can inspect the raw text entry alongside five platform alternative options to manually map or discard mismatches. Any changes chose are automatically committed back to disk.
+    
+*   **Autonomous Mode (n / no):** Turns off interactive triage completely. The utility relies entirely on its implicit matching algorithms to pick the highest confidence score globally, processing the document completely end-to-end without requiring any user input at the end of the script execution.
+
 #### Non-Destructive Exploration: The Dry Run Feature
 Right before the data retrieval pass initiates, the utility provides an interactive safeguard prompt offering a non-destructive verification mode:
 
