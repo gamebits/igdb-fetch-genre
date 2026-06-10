@@ -275,7 +275,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
 
     try:
         print(f"\nProcessing video games and writing updates real-time...{' [DRY RUN MODE]' if is_dry_run else ''}")
-        print("-" * 65)
+        print("-" * 70)
 
         for index, row in enumerate(rows_list, start=1):
             # Dynamic lookup fallback for the title field
@@ -553,7 +553,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
         if outfile:
             outfile.close()
 
-print("-" * 65)
+print("-" * 70)
 print(f"📊 Summary Metric Tallies:")
 
 if has_genre_col:
@@ -588,7 +588,7 @@ print(f"  • Global titles completely missing from IGDB index: {count_not_found
 if has_episode_column and filter_by_episode:
     print(f"  • Games skipped (no assigned episode number): {count_skipped_no_episode}")
 print(f"  • Total games updated: {count_total_successfully_updated_rows} out of {total_games}")
-print("-" * 65)
+print("-" * 70)
 
 if is_dry_run:
     print("🏁 Dry run complete! No mutations or output files were written.")
