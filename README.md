@@ -121,12 +121,14 @@ Some game titles might have multiple ambiguous matches; automatically selecting 
 At startup, right before data gathering kicks off, the script prompts you whether to track and review these potential outliers:
 
 ```text
-Manually confirm potential mismatches after the automated run? [Y/n]:
+Manually confirm potential mismatches after the automated run? [Y]es (interactive), [L]ist mismatches, [N]o (skip) [y/l/N]:
 ```
 
-*   **Interactive Triage Mode Enabled (Default / Enter / y):** Borderline matches are quietly recorded during the background run. Once automation finishes, the utility alerts you if ambiguous items were flagged and opens an interactive review panel. For each item, you can inspect the raw text entry alongside five platform alternative options to manually map or discard mismatches. Any changes chose are automatically committed back to disk.
+*   **Interactive Triage Mode (y / yes / Enter):** Launches a step-by-step terminal selection menu for each low-confidence match at the end of the run. You can inspect the spreadsheet asset details alongside up to five direct alternative listings pulled from the platform server to choose the exact entry or mark it invalid. Overrides chosen are permanently modified back into the spreadsheet rows.
     
-*   **Autonomous Mode (n / no):** Turns off interactive triage completely. The utility relies entirely on its implicit matching algorithms to pick the highest confidence score globally, processing the document completely end-to-end without requiring any user input at the end of the script execution.
+*   **List Mismatches Mode (l / list):** A clean, read-only post-processing summary alternative. The script completely skips interactive confirmation checks and lists the total number of flagged items followed by a direct list of each row name, platform context, the automated database choice selection, and the computed matching confidence percentage (e.g., 🕹️ Lion King (Sega Genesis / SNES) matched with 'The Lion King' — 82% confident). The file is saved using the script's original autonomous selections.
+    
+*   **Autonomous Mode (n / no):** Bypasses all post-run evaluation loops entirely. The spreadsheet is output directly using the top automatic database matches without generating any lists or prompt overhead.
 
 #### Non-Destructive Exploration: The Dry Run Feature
 Right before the data retrieval pass initiates, the utility provides an interactive safeguard prompt offering a non-destructive verification mode:
