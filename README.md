@@ -69,9 +69,6 @@ If the spreadsheet contains either an `Episode` or `Episode #` column, the scrip
 * **Filtering Mode (Default / 'Yes'):** Pressing Enter or typing `y`/`yes` limits the script context exclusively to rows that have an active episode identifier. Rows without numbers (blank cells, `-`, or `None`) are cleanly bypassed during the lookup pass and written back out to the final document without using up API query limits. Under this mode, all real-time terminal progress indicators scale matching contexts directly to this subset (e.g., `(1/1)` rows instead of processing the entire sheet size).
 * **Unrestricted Mode ('No'):** Submitting `n`/`no` deactivates the guard completely. The script processes every single entry in the list chronologically from top to bottom, regardless of whether an episode key is assigned.
 
-#### Target Fallback: Failsafe Routine (Genre-Only Mode)
-If your spreadsheet lacks all four primary metadata headers entirely (e.g., it is a simple list consisting exclusively of raw game titles), or explicitly requests only `Genre`, the utility automatically stabilizes the layout:
-
 ---
 
 ### Metadata Detection & Query Precision
