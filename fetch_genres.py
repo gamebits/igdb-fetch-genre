@@ -4,7 +4,21 @@ import os
 import sys
 import time
 from difflib import SequenceMatcher
-import requests
+
+# --- Automated Dependency Installer Guard ---
+try:
+    import requests
+except ImportError:
+    print("📦 Missing system dependency 'requests'. Attempting auto-installation via pip...")
+    try:
+        import subprocess
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "requests"])
+        import requests
+        print("✅ 'requests' module installed successfully!\n")
+    except Exception as e:
+        print(f"❌ Automated installation failed: {e}")
+        print("Please manually run 'pip install requests' before executing this script.")
+        sys.exit(1)
 
 # --- Configuration ---
 CLIENT_ID = os.environ.get("IGDB_CLIENT_ID")
