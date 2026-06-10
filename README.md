@@ -116,7 +116,7 @@ python3 fetch_genres.py
 ```
 
 #### Smart Post-Run Triage Engine (Optional)
-Some game titles might have multiple ambiguous matches; automatically selecting the best match might still produce the wrong result. The user can review and confirm these low-confidence matches at the end of the script.
+Some game titles might have multiple ambiguous matches; automatically selecting the best match might still produce the wrong result. The user can review and confirm these low-confidence (<=85% likelihood) matches at the end of the script.
 
 At startup, right before data gathering kicks off, the script prompts you whether to track and review these potential outliers:
 
