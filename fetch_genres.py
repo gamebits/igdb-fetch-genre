@@ -28,7 +28,7 @@ missing_vars = []
 if not CLIENT_ID:
     missing_vars.append("IGDB_CLIENT_ID")
 if not CLIENT_SECRET:
-    missing_vars.append("IGDB_CLIENT_SECRET")
+    missing_vars.append("CLIENT_SECRET")
 
 if missing_vars:
     print(f"Error: Please set the following environment variable(s): {', '.join(missing_vars)}.")
@@ -206,9 +206,9 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
         if episode_confirm in ('n', 'no'):
             filter_by_episode = False
 
-    # New prompt offering the choice to enable or skip human triage post-processing at execution time
-    triage_prompt = input("Manually confirm potential mismatches after the automated run? [Y/n]: ").strip().lower()
-    enable_triage = triage_prompt not in ('n', 'no')
+    # Integrated triage configuration prompt right before dry run parameters
+    triage_mode = input("Manually confirm potential mismatches after the automated run? [Y]es (interactive), [L]ist mismatches, [N]o (skip) [y/l/N]: ").strip().lower()
+    enable_triage = triage_mode in ('y', 'yes', 'l', 'list')
 
     # Final prompt offering a dry-run alternative right before operations begin
     dry_run_confirm = input("Perform a dry run? (Stream updates but do not write to file) [y/N]: ").strip().lower()
@@ -477,14 +477,15 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                     matched_game = candidates[0]
                     confidence_score = 0.40
 
-                # Ambiguous Match Detection: Flag borderline ratios ONLY if triage mode is actively toggled on
-                if enable_triage and (0.45 <= confidence_score <= 0.85) and len(candidates) > 1 and not is_dry_run:
+                # Ambiguous Match Detection: Flag borderline ratios globally if triage tracking is configured
+                if enable_triage and (0.45 <= confidence_score <= 0.85) and len(candidates) > 1:
                     triage_queue.append({
                         "index": index,
                         "row_reference": row,
                         "original_title": game_title,
                         "original_system": system,
                         "auto_selected": matched_game,
+                        "confidence_percentage": int(confidence_score * 100),
                         "options_pool": candidates[:5]
                     })
 
@@ -610,18 +611,24 @@ if has_release_date_col:
     print(f"  • Release Date entries skipped (pre-populated): {dates_skipped}")
 
 print()
-print(f"  • Titles completely missing from IGDB index: {count_not_found}")
+print(f"  • Global titles completely missing from IGDB index: {count_not_found}")
 if has_episode_column and filter_by_episode:
     print(f"  • Games skipped (no assigned episode number): {count_skipped_no_episode}")
 print(f"  • Total games updated: {count_total_successfully_updated_rows} out of {total_games}")
-print("-\" * 65)
+print("-" * 65)
 
 # --- POST-RUN TRIAGE PASSTHROUGH ENGINE ---
-if triage_queue and not is_dry_run:
-    print(f"\n⚠️  Attention: Automated processing flagged {len(triage_queue)} low-confidence or ambiguous database matches.")
-    run_triage = input("Would you like to resolve these matches interactively now? [Y/n]: ").strip().lower()
-    
-    if run_triage not in ('n', 'no'):
+if triage_queue and enable_triage:
+    if triage_mode in ('l', 'list'):
+        # Mode 3: Print structured read-only summary list of all ambiguous matches found during run
+        print(f"\n📋 Games with low confidence matches: {len(triage_queue)}")
+        print("-" * 65)
+        for t_item in triage_queue:
+            print(f"🕹️  {t_item['original_title']} ({t_item['original_system']}) matched with '{t_item['auto_selected']['name']}' — {t_item['confidence_percentage']}% confident")
+        print("-" * 65)
+        
+    elif triage_mode in ('y', 'yes'):
+        # Mode 1: Run standard step-by-step interactive resolution menu flow
         triage_mutated_count = 0
         
         for q_idx, item in enumerate(triage_queue, start=1):
@@ -655,13 +662,13 @@ if triage_queue and not is_dry_run:
             if chosen_candidate and chosen_candidate['id'] != item['auto_selected']['id']:
                 new_meta = extract_metadata_from_candidate(chosen_candidate)
                 if has_genre_col: item['row_reference'][genre_key] = new_meta["genre"] or "No genre data available"
-                if has_publisher_col: item['row_reference'][pub_key] = new_meta["publisher"] or "Unknown"
+                if hover_pub_col := has_publisher_col: item['row_reference'][pub_key] = new_meta["publisher"] or "Unknown"
                 if has_developer_col: item['row_reference'][dev_key] = new_meta["developer"] or "Unknown"
                 if has_release_date_col: item['row_reference'][rel_date_key] = new_meta["release_date"] or "Unknown"
                 triage_mutated_count += 1
                 print(f"✅ Reassigned to: {chosen_candidate['name']}")
 
-        if triage_mutated_count > 0:
+        if triage_mutated_count > 0 and not is_dry_run:
             print(f"\n💾 Committing {triage_mutated_count} triage manual overrides to: {OUTPUT_CSV}...")
             with open(OUTPUT_CSV, mode='w', encoding='utf-8', newline='') as final_outfile:
                 final_writer = csv.DictWriter(final_outfile, fieldnames=output_fields, extrasaction='ignore')
@@ -682,6 +689,8 @@ if triage_queue and not is_dry_run:
                     clean_row = {field: processed_row.get(field, "") for field in output_fields}
                     final_writer.writerow(clean_row)
             print("🎉 File successfully updated with overrides!")
+        elif triage_mutated_count > 0 and is_dry_run:
+            print("\nℹ️ Dry run active. Overrides calculated in memory but not committed to file.")
         else:
             print("ℹ️ No manual overrides were chosen. File preserved as generated.")
 
