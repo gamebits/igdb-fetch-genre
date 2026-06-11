@@ -506,7 +506,9 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                     confidence_score = 0.40
 
                 # Ambiguous Match Detection: Flag borderline ratios globally if triage tracking is configured
-                if enable_triage and (0.45 <= confidence_score <= 0.85) and len(candidates) > 1:
+                # Adjustment: If there is only 1 candidate but it has a low score, still flag it for review
+                is_low_confidence = (0.45 <= confidence_score <= 0.85)
+                if enable_triage and is_low_confidence and (len(candidates) > 1 or len(candidates) == 1):
                     triage_queue.append({
                         "index": index,
                         "row_reference": row,
