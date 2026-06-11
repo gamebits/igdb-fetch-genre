@@ -533,6 +533,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
 
                 # Track platform discrepancies if mapping columns coexist with granular partial cross-substring protection
                 if has_system_column and has_platform_output_col and system and extracted["original_platform"]:
+                    # Split input fields down dynamically to accommodate compound spreadsheet markers like "Sega Genesis / SNES"
                     sub_systems = [s.strip() for s in system.replace("/", "|").replace(",", "|").split("|") if s.strip()]
                     
                     matched_any_sub_system = False
