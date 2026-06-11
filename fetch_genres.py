@@ -508,7 +508,8 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                 extracted = extract_metadata_from_candidate(matched_game)
 
                 # Track temporal alignment discrepancies between local sheet year metrics vs. remote server database indexes
-                if has_date_column and year.isdigit() and len(year) == 4 and extracted["release_date"]:
+                # Rule: ONLY compute variations if both the input validation column AND extraction target column coexist
+                if has_date_column and has_release_date_col and year.isdigit() and len(year) == 4 and extracted["release_date"]:
                     db_year = extracted["release_date"].split("-")[0]
                     if year != db_year:
                         count_inaccurate_years += 1
@@ -641,12 +642,13 @@ print()  # Visual break before global error counts
 print(f"  • Global titles completely missing from IGDB index: {count_not_found}")
 if has_episode_column and filter_by_episode:
     print(f"  • Games skipped (no assigned episode number): {count_skipped_no_episode}")
-print(f"  • Games whose originally recorded release years were inaccurate: {count_inaccurate_years}")
+if has_date_column and has_release_date_col:
+    print(f"  • Games whose originally recorded release years were inaccurate: {count_inaccurate_years}")
 print(f"  • Total games updated: {count_total_successfully_updated_rows} out of {total_games}")
 print("-" * 70)
 
 # Append read-only printout list mapping chronological historical variance data profiles
-if inaccurate_years_queue:
+if has_date_column and has_release_date_col and inaccurate_years_queue:
     print("\n📋 Detailed List of Inaccurate Spreadsheet Release Years:")
     print("-" * 70)
     for skew_item in inaccurate_years_queue:
