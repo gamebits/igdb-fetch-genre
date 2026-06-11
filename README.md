@@ -1,6 +1,6 @@
 # IGDB Game Genre Fetcher Utility
 
-This utility reads a game collection list from a CSV spreadsheet, queries the **IGDB API** via the Twitch Developer Portal to match video game titles, extracts their metadata (release date, publisher, developer, and genre), and logs everything to an updated CSV spreadsheet.
+This utility reads a game collection list from a CSV spreadsheet, queries the **IGDB API** via the Twitch Developer Portal to match video game titles, extracts their metadata (release date, publisher, developer, platform, and genre), and logs everything to an updated CSV spreadsheet.
 
 It was vibe-coded by Ken Gagne using Google Gemini for use with the _[New Game Plus](https://ngppodcast.com/)_ podcast's [Retro Master List](https://bit.ly/RetroML), but it can be adapted to any use case or CSV.
 
@@ -57,7 +57,7 @@ If you decline or press Enter, the operation cancels cleanly without losing data
 The utility features an **Implicit Schema ("Detect and Inject")** workflow. Rather than requiring a static or rigid table setup, it dynamically alters its behavior based on which specific column headers it finds inside your sheet:
 
 #### Found Targets: Explicit Metadata Columns
-The script actively scans your spreadsheet headers for the presence of `Genre`, `Release Date`, `Publisher`, and `Developer`. 
+The script actively scans your spreadsheet headers for the presence of columns titled `Release Date`, `Platform`, `Publisher`, `Developer`, and `Genre`. 
 
 * **Target Enrichment:** If any combination of these columns is found, the script flags them as active targets. At startup, it displays the discovered structure and prompts for explicit processing confirmation before querying the API.
 * **Selective Genre Column Injection:** If all metadata targets (`Genre`, `Publisher`, `Developer`, and `Release Date`) are completely missing from the sheet, a `Genre` column will be dynamically added (either before the `Episode` column if present, or to the end of the spreadsheet if not).
