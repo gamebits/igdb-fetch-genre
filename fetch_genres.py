@@ -174,6 +174,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
     has_publisher_col = any(f.lower() == "publisher" for f in fieldnames)
     has_developer_col = any(f.lower() == "developer" for f in fieldnames)
     has_platform_output_col = any(f.lower() in ("platform", "original platform") for f in fieldnames)
+    has_confidence_col = any(f.lower() == "confidence" for f in fieldnames)
 
     # Resolve literal column field names as they exist exactly inside the source document
     genre_key = next((f for f in fieldnames if f.lower() == "genre"), "Genre")
@@ -187,6 +188,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
     dev_key = next((f for f in fieldnames if f.lower() == "developer"), "Developer")
     rel_date_key = next((f for f in fieldnames if f.lower() == "release date"), "Release Date")
     platform_output_key = next((f for f in fieldnames if f.lower() in ("platform", "original platform")), "Original Platform")
+    confidence_key = next((f for f in fieldnames if f.lower() == "confidence"), "Confidence")
 
     detected_targets = []
     if has_genre_col: detected_targets.append("Genre")
@@ -549,6 +551,10 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                             f"👾  {game_title} — Recorded: {system} vs. IGDB: {extracted['original_platform']}"
                         )
 
+                # Append matching accuracy percentage directly to confidence columns if present
+                if has_confidence_col:
+                    row[confidence_key] = f"{int(confidence_score * 100)}%"
+
                 # Update Genre Column
                 if has_genre_col:
                     if needs_genre:
@@ -631,6 +637,8 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
             else:
                 print()
                 print(f"❌ ({index}/{total_games}) {game_title} ➡️  No Match found on IGDB")
+                if has_confidence_col:
+                    row[confidence_key] = "0%"
                 if has_genre_col and needs_genre:
                     row[genre_key] = "Unknown"
                     genres_missing_index += 1
@@ -757,17 +765,24 @@ if triage_queue and enable_triage:
                 if has_developer_col: item['row_reference'][dev_key] = "Unknown"
                 if has_release_date_col: item['row_reference'][rel_date_key] = "Unknown"
                 if has_platform_output_col: item['row_reference'][platform_output_key] = "Unknown"
+                if has_confidence_col: item['row_reference'][confidence_key] = "0%"
                 triage_mutated_count += 1
             elif selection != 's' and selection.isdigit() and 1 <= int(selection) <= len(item['options_pool']):
                 chosen_candidate = item['options_pool'][int(selection) - 1]
                 
             if chosen_candidate and chosen_candidate['id'] != item['auto_selected']['id']:
                 new_meta = extract_metadata_from_candidate(chosen_candidate)
+                # Compute updated similarity confidence index on manually resolved choices
+                new_target_norm = normalize_string(item['original_title'])
+                new_cand_norm = normalize_string(chosen_candidate.get("name", ""))
+                new_score = SequenceMatcher(None, new_target_norm, new_cand_norm).ratio()
+                
                 if has_genre_col: item['row_reference'][genre_key] = new_meta["genre"] or "No genre data available"
                 if has_publisher_col: item['row_reference'][pub_key] = new_meta["publisher"] or "Unknown"
                 if has_developer_col: item['row_reference'][dev_key] = new_meta["developer"] or "Unknown"
                 if has_release_date_col: item['row_reference'][rel_date_key] = new_meta["release_date"] or "Unknown"
                 if has_platform_output_col: item['row_reference'][platform_output_key] = new_meta["original_platform"] or "Unknown"
+                if has_confidence_col: item['row_reference'][confidence_key] = f"{int(new_score * 100)}%"
                 triage_mutated_count += 1
                 print(f"✅ Reassigned to: {chosen_candidate['name']}")
 
