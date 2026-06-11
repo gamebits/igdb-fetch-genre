@@ -125,6 +125,7 @@ count_not_found = 0
 count_total_successfully_updated_rows = 0
 count_skipped_no_episode = 0
 count_inaccurate_years = 0
+count_inaccurate_platforms = 0
 
 genres_updated = 0
 genres_no_data = 0
@@ -146,8 +147,14 @@ dates_no_data = 0
 dates_missing_index = 0
 dates_skipped = 0
 
-# Storage bucket array to cache formatting strings of detected variations
+platforms_updated = 0
+platforms_no_data = 0
+platforms_missing_index = 0
+platforms_skipped = 0
+
+# Storage bucket arrays to cache formatting strings of detected variations
 inaccurate_years_queue = []
+inaccurate_platforms_queue = []
 
 with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
     first_line = infile.readline()
@@ -166,11 +173,12 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
     has_release_date_col = any(f.lower() == "release date" for f in fieldnames)
     has_publisher_col = any(f.lower() == "publisher" for f in fieldnames)
     has_developer_col = any(f.lower() == "developer" for f in fieldnames)
+    has_platform_output_col = any(f.lower() in ("platform", "original platform") for f in fieldnames)
 
     # Resolve literal column field names as they exist exactly inside the source document
     genre_key = next((f for f in fieldnames if f.lower() == "genre"), "Genre")
     date_key = next((f for f in fieldnames if f.lower() == "date"), "Date")
-    system_key = next((f for f in fieldnames if f.lower() == "original system"), "Original System")
+    system_key = next((f for f in fieldnames if f.lower() in ("system", "original system")), "Original System")
     
     # Interchangeable filter alignment lookup: dynamically pair either 'Episode' or 'Episode #' variations
     episode_key = next((f for f in fieldnames if f.lower() in ("episode #", "episode")), "Episode #")
@@ -178,16 +186,18 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
     pub_key = next((f for f in fieldnames if f.lower() == "publisher"), "Publisher")
     dev_key = next((f for f in fieldnames if f.lower() == "developer"), "Developer")
     rel_date_key = next((f for f in fieldnames if f.lower() == "release date"), "Release Date")
+    platform_output_key = next((f for f in fieldnames if f.lower() in ("platform", "original platform")), "Original Platform")
 
     detected_targets = []
     if has_genre_col: detected_targets.append("Genre")
     if has_release_date_col: detected_targets.append("Release Date")
     if has_publisher_col: detected_targets.append("Publisher")
     if has_developer_col: detected_targets.append("Developer")
+    if has_platform_output_col: detected_targets.append(platform_output_key)
 
     # Dynamic Column Injection Rule: Add Genre ONLY if ALL target columns are missing
     if not detected_targets:
-        print("\nℹ️ No metadata headers (Genre, Release Date, Publisher, Developer) found.")
+        print("\nℹ️ No metadata headers found.")
         print("Defaulting to Genre-only extraction.")
         confirm = input("Proceed with adding a Genre column? [Y/n]: ").strip().lower()
         if confirm in ('n', 'no'):
@@ -254,9 +264,8 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
     total_games = len(rows_list)
 
     # Build optimized payload field string
-    query_fields = ["name", "platforms.name", "release_dates.y"]
+    query_fields = ["name", "platforms.name", "first_release_date", "release_dates.date", "release_dates.platform.name"]
     if has_genre_col: query_fields.append("genres.name")
-    if has_release_date_col: query_fields.append("first_release_date")
     if has_publisher_col or has_developer_col:
         query_fields.extend([
             "involved_companies.publisher",
@@ -270,7 +279,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
 
     # Helper function to map data out extracted from an IGDB payload entry
     def extract_metadata_from_candidate(game_node):
-        meta = {"genre": "", "publisher": "", "developer": "", "release_date": ""}
+        meta = {"genre": "", "publisher": "", "developer": "", "release_date": "", "original_platform": ""}
         if "genres" in game_node and game_node["genres"]:
             meta["genre"] = ", ".join([g["name"] for g in game_node["genres"]])
         if "involved_companies" in game_node:
@@ -282,9 +291,20 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                     if ic.get("developer"): devs.append(c_name)
             meta["publisher"] = ", ".join(pubs)
             meta["developer"] = ", ".join(devs)
+        
         raw_timestamp = game_node.get("first_release_date")
         if raw_timestamp:
             meta["release_date"] = time.strftime('%Y-%m-%d', time.gmtime(raw_timestamp))
+            
+            # Walk the release dates list to locate which port matches our exact first release date
+            if "release_dates" in game_node and game_node["release_dates"]:
+                for rd in game_node["release_dates"]:
+                    if rd.get("date") == raw_timestamp and "platform" in rd:
+                        meta["original_platform"] = rd["platform"].get("name", "")
+                        break
+                # Fallback to the top level platform array if sub-objects are unaligned
+                if not meta["original_platform"] and "platforms" in game_node and game_node["platforms"]:
+                    meta["original_platform"] = game_node["platforms"][0].get("name", "")
         return meta
 
     # Memory bucket tracking queue for post-processing review pass
@@ -338,28 +358,26 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
             if has_genre_col and genre_key not in row:
                 row[genre_key] = ""
 
-            # Determine column execution requirements to track skipped data fields
             needs_genre = has_genre_col and not row.get(genre_key, "").strip()
             needs_pub = has_publisher_col and not row.get(pub_key, "").strip()
             needs_dev = has_developer_col and not row.get(dev_key, "").strip()
             needs_date = has_release_date_col and not row.get(rel_date_key, "").strip()
+            needs_platform = has_platform_output_col and not row.get(platform_output_key, "").strip()
 
-            # Record individual tracking tallies for fields that are pre-populated
             if has_genre_col and not needs_genre: genres_skipped += 1
             if has_publisher_col and not needs_pub: publishers_skipped += 1
             if has_developer_col and not needs_dev: developers_skipped += 1
             if has_release_date_col and not needs_date: dates_skipped += 1
+            if has_platform_output_col and not needs_platform: platforms_skipped += 1
 
-            # If no requested fields are missing, output the row to skipped logs and move on
-            if has_genre_col or has_publisher_col or has_developer_col or has_release_date_col:
-                if not (needs_genre or needs_pub or needs_dev or needs_date):
+            if has_genre_col or has_publisher_col or has_developer_col or has_release_date_col or has_platform_output_col:
+                if not (needs_genre or needs_pub or needs_dev or needs_date or needs_platform):
                     print()
                     print(f"⏭️  ({index}/{total_games}) [Skipped] {title.strip()} (All requested metadata already populated)")
                     clean_row = {field: row.get(field, "") for field in output_fields}
                     writer.writerow(clean_row)
                     continue
             
-            # Clean up raw text encoding artifacts entirely
             game_title = title.strip()
             search_title = game_title.replace("√©", "e").replace("‚Äôs", "'").replace("‚Äô", "'")
             target_norm = normalize_string(search_title)
@@ -368,13 +386,11 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
             match_type = "Search"
             
             # --- STAGE 1A: Exact Target Year Search ---
-            # Prioritize an exact, precise year query match first to stop adjacent year companion title leakage
             if year and year.isdigit() and len(year) == 4:
                 body_exact_year = f'search "{search_title}"; fields {fields_payload}; where release_dates.y = {year}; limit 20;'
                 candidates = query_igdb_with_retry(body_exact_year)
                 match_type = f"Exact Year [{year}]"
                 
-                # Validation Guard: Reject the exact year candidate pool if the top search result is a false positive
                 if candidates:
                     top_cand_norm = normalize_string(candidates[0].get("name", ""))
                     top_ratio = SequenceMatcher(None, target_norm, top_cand_norm).ratio()
@@ -382,7 +398,6 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                         candidates = None
 
             # --- STAGE 1B: Target Year Range Fallback Window (-1 / +1) ---
-            # Run the wider 3-year range pool ONLY if the exact year filter comes up completely empty
             if not candidates and year and year.isdigit() and len(year) == 4:
                 target_year = int(year)
                 min_year = target_year - 1
@@ -391,7 +406,6 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                 candidates = query_igdb_with_retry(body_year)
                 match_type = f"Year Window [{min_year}-{max_year}]"
                 
-                # Validation Guard: Discard the window pool if the top search result lacks names similarity entirely
                 if candidates:
                     top_cand_norm = normalize_string(candidates[0].get("name", ""))
                     top_ratio = SequenceMatcher(None, target_norm, top_cand_norm).ratio()
@@ -449,7 +463,6 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                         cand_norm = normalize_string(cand_name)
                         ratio = SequenceMatcher(None, target_norm, cand_norm).ratio()
                         
-                        # Strict whole word boundaries limit false-positive sequence matches
                         cand_words = cand_name.lower().replace(":", "").replace("-", "").split()
                         target_words = search_title.lower().replace(":", "").replace("-", "").split()
                         is_valid_word_match = any(w in cand_words for w in target_words)
@@ -507,8 +520,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                 row_had_active_updates = False
                 extracted = extract_metadata_from_candidate(matched_game)
 
-                # Track temporal alignment discrepancies between local sheet year metrics vs. remote server database indexes
-                # Rule: ONLY compute variations if both the input validation column AND extraction target column coexist
+                # Track timeline discrepancies if baseline fields coexist
                 if has_date_column and has_release_date_col and year.isdigit() and len(year) == 4 and extracted["release_date"]:
                     db_year = extracted["release_date"].split("-")[0]
                     if year != db_year:
@@ -517,7 +529,27 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                             f"🗓️  {game_title} ({system if system else 'Unknown Platform'}) — Recorded: {year} vs. IGDB: {db_year}"
                         )
 
-                # 1. Update Genre (Only if previously empty)
+                # Track platform discrepancies if mapping columns coexist with granular partial cross-substring protection
+                if has_system_column and has_platform_output_col and system and extracted["original_platform"]:
+                    # Split input fields down dynamically to accommodate compound spreadsheet markers like "Sega Genesis / SNES"
+                    sub_systems = [s.strip() for s in system.replace("/", "|").replace(",", "|").split("|") if s.strip()]
+                    
+                    matched_any_sub_system = False
+                    db_platform_norm = normalize_string(extracted["original_platform"])
+                    
+                    for sub in sub_systems:
+                        translated_aliases = [normalize_string(a) for a in expand_platform_aliases(sub)]
+                        if any(alias in db_platform_norm or db_platform_norm in alias for alias in translated_aliases):
+                            matched_any_sub_system = True
+                            break
+                            
+                    if not matched_any_sub_system:
+                        count_inaccurate_platforms += 1
+                        inaccurate_platforms_queue.append(
+                            f"👾  {game_title} — Recorded: {system} vs. IGDB: {extracted['original_platform']}"
+                        )
+
+                # Update Genre Column
                 if has_genre_col:
                     if needs_genre:
                         if extracted["genre"]:
@@ -531,7 +563,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                     else:
                         log_components.append(f"Genre: {row[genre_key]} (Skipped)")
 
-                # 2. Update Publisher (Only if previously empty)
+                # Update Publisher Column
                 if has_publisher_col:
                     if needs_pub:
                         if extracted["publisher"]:
@@ -545,7 +577,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                     else:
                         log_components.append(f"Publisher: {row[pub_key]} (Skipped)")
 
-                # 3. Update Developer (Only if previously empty)
+                # Update Developer Column
                 if has_developer_col:
                     if needs_dev:
                         if_dev = extracted["developer"]
@@ -560,7 +592,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                     else:
                         log_components.append(f"Developer: {row[dev_key]} (Skipped)")
 
-                # 4. Update Release Date (Only if previously empty)
+                # Update Release Date Column
                 if has_release_date_col:
                     if needs_date:
                         if extracted["release_date"]:
@@ -574,10 +606,23 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                     else:
                         log_components.append(f"Release Date: {row[rel_date_key]} (Skipped)")
 
+                # Update Original Platform Column
+                if has_platform_output_col:
+                    if needs_platform:
+                        if extracted["original_platform"]:
+                            row[platform_output_key] = extracted["original_platform"]
+                            platforms_updated += 1
+                            row_had_active_updates = True
+                        else:
+                            row[platform_output_key] = "Unknown"
+                            platforms_no_data += 1
+                        log_components.append(f"Platform: {row[platform_output_key]}")
+                    else:
+                        log_components.append(f"Platform: {row[platform_output_key]} (Skipped)")
+
                 if row_had_active_updates:
                     count_total_successfully_updated_rows += 1
 
-                # Structured Two-Line Streaming Output with blank spacing breaks
                 log_details = " | ".join(log_components)
                 print()
                 print(f"🎮 ({index}/{total_games}) {game_title} [{match_type} Match: {matched_game['name']} (Conf: {int(confidence_score*100)}%)]")
@@ -598,6 +643,9 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                 if has_release_date_col and needs_date:
                     row[rel_date_key] = "Unknown"
                     dates_missing_index += 1
+                if has_platform_output_col and needs_platform:
+                    row[platform_output_key] = "Unknown"
+                    platforms_missing_index += 1
                 count_not_found += 1
             
             clean_row = {field: row.get(field, "") for field in output_fields}
@@ -618,36 +666,45 @@ if has_genre_col:
     print(f"  • Genre entries skipped (pre-populated): {genres_skipped}")
 
 if has_publisher_col:
-    print()  # Visual break between categories
+    print()
     print(f"  • Publishers updated: {publishers_updated}")
     print(f"  • Games found with no publisher context listed: {publishers_no_data}")
     print(f"  • Publisher requests missing entirely from IGDB index: {publishers_missing_index}")
     print(f"  • Publisher entries skipped (pre-populated): {publishers_skipped}")
 
 if has_developer_col:
-    print()  # Visual break between categories
+    print()
     print(f"  • Developers updated: {developers_updated}")
     print(f"  • Games found with no developer context listed: {developers_no_data}")
     print(f"  • Developer requests missing entirely from IGDB index: {developers_missing_index}")
     print(f"  • Developer entries skipped (pre-populated): {developers_skipped}")
 
 if has_release_date_col:
-    print()  # Visual break between categories
+    print()
     print(f"  • Release Dates updated: {dates_updated}")
     print(f"  • Games found with no release date context listed: {dates_no_data}")
+    if has_date_column:
+        print(f"  • Games whose originally recorded release years were inaccurate: {count_inaccurate_years}")
     print(f"  • Release Date requests missing entirely from IGDB index: {dates_missing_index}")
     print(f"  • Release Date entries skipped (pre-populated): {dates_skipped}")
 
-print()  # Visual break before global error counts
+if has_platform_output_col:
+    print()
+    print(f"  • Platforms updated: {platforms_updated}")
+    print(f"  • Games found with no platform listed: {platforms_no_data}")
+    if has_system_column:
+        print(f"  • Games whose originally recorded platforms were inaccurate: {count_inaccurate_platforms}")
+    print(f"  • Platforms requests missing entirely from IGDB index: {platforms_missing_index}")
+    print(f"  • Platform entries skipped (pre-populated): {platforms_skipped}")
+
+print()
 print(f"  • Global titles completely missing from IGDB index: {count_not_found}")
 if has_episode_column and filter_by_episode:
     print(f"  • Games skipped (no assigned episode number): {count_skipped_no_episode}")
-if has_date_column and has_release_date_col:
-    print(f"  • Games whose originally recorded release years were inaccurate: {count_inaccurate_years}")
 print(f"  • Total games updated: {count_total_successfully_updated_rows} out of {total_games}")
 print("-" * 70)
 
-# Append read-only printout list mapping chronological historical variance data profiles
+# Append read-only log mapping historical date profiles
 if has_date_column and has_release_date_col and inaccurate_years_queue:
     print("\n📋 Detailed List of Inaccurate Spreadsheet Release Years:")
     print("-" * 70)
@@ -655,10 +712,17 @@ if has_date_column and has_release_date_col and inaccurate_years_queue:
         print(skew_item)
     print("-" * 70)
 
+# Append read-only log mapping historical platform profiles
+if has_system_column and has_platform_output_col and inaccurate_platforms_queue:
+    print("\n📋 Detailed List of Inaccurate Spreadsheet Release Platforms:")
+    print("-" * 70)
+    for skew_item in inaccurate_platforms_queue:
+        print(skew_item)
+    print("-" * 70)
+
 # --- POST-RUN TRIAGE PASSTHROUGH ENGINE ---
 if triage_queue and enable_triage:
     if triage_mode in ('l', 'list'):
-        # Mode 3: Print structured read-only summary list of all ambiguous matches found during run
         print(f"\n📋 Games with low confidence matches: {len(triage_queue)}")
         print("-" * 70)
         for t_item in triage_queue:
@@ -666,7 +730,6 @@ if triage_queue and enable_triage:
         print("-" * 70)
         
     elif triage_mode in ('y', 'yes'):
-        # Mode 1: Run standard step-by-step interactive resolution menu flow
         triage_mutated_count = 0
         
         for q_idx, item in enumerate(triage_queue, start=1):
@@ -693,30 +756,29 @@ if triage_queue and enable_triage:
                 if has_publisher_col: item['row_reference'][pub_key] = "Unknown"
                 if has_developer_col: item['row_reference'][dev_key] = "Unknown"
                 if has_release_date_col: item['row_reference'][rel_date_key] = "Unknown"
+                if has_platform_output_col: item['row_reference'][platform_output_key] = "Unknown"
                 triage_mutated_count += 1
             elif selection != 's' and selection.isdigit() and 1 <= int(selection) <= len(item['options_pool']):
                 chosen_candidate = item['options_pool'][int(selection) - 1]
                 
             if chosen_candidate and chosen_candidate['id'] != item['auto_selected']['id']:
-                # Recalculate cell injections specifically for the manually selected candidate
                 new_meta = extract_metadata_from_candidate(chosen_candidate)
                 if has_genre_col: item['row_reference'][genre_key] = new_meta["genre"] or "No genre data available"
                 if has_publisher_col: item['row_reference'][pub_key] = new_meta["publisher"] or "Unknown"
                 if has_developer_col: item['row_reference'][dev_key] = new_meta["developer"] or "Unknown"
                 if has_release_date_col: item['row_reference'][rel_date_key] = new_meta["release_date"] or "Unknown"
+                if has_platform_output_col: item['row_reference'][platform_output_key] = new_meta["original_platform"] or "Unknown"
                 triage_mutated_count += 1
                 print(f"✅ Reassigned to: {chosen_candidate['name']}")
 
         if triage_mutated_count > 0 and not is_dry_run:
             print(f"\n💾 Committing {triage_mutated_count} triage manual overrides to: {OUTPUT_CSV}...")
-            # Stream revised database back out into file structure
             with open(OUTPUT_CSV, mode='w', encoding='utf-8', newline='') as final_outfile:
                 final_writer = csv.DictWriter(final_outfile, fieldnames=output_fields, extrasaction='ignore')
                 if has_title_line:
                     final_outfile.write(title_line)
                 final_writer.writeheader()
                 
-                # Write back skipped elements
                 if has_episode_column and filter_by_episode:
                     for raw_row in raw_rows_list:
                         row = {k.replace("\xef\xbb\xbf", "").strip(): v for k, v in raw_row.items() if k is not None}
@@ -726,7 +788,6 @@ if triage_queue and enable_triage:
                             clean_row = {field: row.get(field, "") for field in output_fields}
                             final_writer.writerow(clean_row)
                             
-                # Write back all core matching elements (including your revisions)
                 for processed_row in rows_list:
                     clean_row = {field: processed_row.get(field, "") for field in output_fields}
                     final_writer.writerow(clean_row)
