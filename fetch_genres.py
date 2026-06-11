@@ -124,6 +124,7 @@ print(f"Opening {INPUT_CSV} for processing...")
 count_not_found = 0
 count_total_successfully_updated_rows = 0
 count_skipped_no_episode = 0
+count_inaccurate_years = 0
 
 genres_updated = 0
 genres_no_data = 0
@@ -144,6 +145,9 @@ dates_updated = 0
 dates_no_data = 0
 dates_missing_index = 0
 dates_skipped = 0
+
+# Storage bucket array to cache formatting strings of detected variations
+inaccurate_years_queue = []
 
 with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
     first_line = infile.readline()
@@ -313,7 +317,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
 
     try:
         print(f"\nProcessing video games and writing updates real-time...{' [DRY RUN MODE]' if is_dry_run else ''}")
-        print("-" * 65)
+        print("-" * 70)
 
         for index, row in enumerate(rows_list, start=1):
             # Dynamic lookup fallback for the title field
@@ -334,16 +338,19 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
             if has_genre_col and genre_key not in row:
                 row[genre_key] = ""
 
+            # Determine column execution requirements to track skipped data fields
             needs_genre = has_genre_col and not row.get(genre_key, "").strip()
             needs_pub = has_publisher_col and not row.get(pub_key, "").strip()
             needs_dev = has_developer_col and not row.get(dev_key, "").strip()
             needs_date = has_release_date_col and not row.get(rel_date_key, "").strip()
 
+            # Record individual tracking tallies for fields that are pre-populated
             if has_genre_col and not needs_genre: genres_skipped += 1
             if has_publisher_col and not needs_pub: publishers_skipped += 1
             if has_developer_col and not needs_dev: developers_skipped += 1
             if has_release_date_col and not needs_date: dates_skipped += 1
 
+            # If no requested fields are missing, output the row to skipped logs and move on
             if has_genre_col or has_publisher_col or has_developer_col or has_release_date_col:
                 if not (needs_genre or needs_pub or needs_dev or needs_date):
                     print()
@@ -352,6 +359,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                     writer.writerow(clean_row)
                     continue
             
+            # Clean up raw text encoding artifacts entirely
             game_title = title.strip()
             search_title = game_title.replace("√©", "e").replace("‚Äôs", "'").replace("‚Äô", "'")
             target_norm = normalize_string(search_title)
@@ -360,18 +368,21 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
             match_type = "Search"
             
             # --- STAGE 1A: Exact Target Year Search ---
+            # Prioritize an exact, precise year query match first to stop adjacent year companion title leakage
             if year and year.isdigit() and len(year) == 4:
                 body_exact_year = f'search "{search_title}"; fields {fields_payload}; where release_dates.y = {year}; limit 20;'
                 candidates = query_igdb_with_retry(body_exact_year)
                 match_type = f"Exact Year [{year}]"
                 
+                # Validation Guard: Reject the exact year candidate pool if the top search result is a false positive
                 if candidates:
                     top_cand_norm = normalize_string(candidates[0].get("name", ""))
                     top_ratio = SequenceMatcher(None, target_norm, top_cand_norm).ratio()
                     if top_ratio < 0.35 and target_norm not in top_cand_norm and top_cand_norm not in target_norm:
                         candidates = None
 
-            # --- STAGE 1B: Target Year Range Fallback Window ---
+            # --- STAGE 1B: Target Year Range Fallback Window (-1 / +1) ---
+            # Run the wider 3-year range pool ONLY if the exact year filter comes up completely empty
             if not candidates and year and year.isdigit() and len(year) == 4:
                 target_year = int(year)
                 min_year = target_year - 1
@@ -380,6 +391,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                 candidates = query_igdb_with_retry(body_year)
                 match_type = f"Year Window [{min_year}-{max_year}]"
                 
+                # Validation Guard: Discard the window pool if the top search result lacks names similarity entirely
                 if candidates:
                     top_cand_norm = normalize_string(candidates[0].get("name", ""))
                     top_ratio = SequenceMatcher(None, target_norm, top_cand_norm).ratio()
@@ -429,7 +441,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                             confidence_score = 0.95
                             break
 
-                # Pass C: Sequence Similarity Score + Correct Platforms
+                # Pass C: Sequence Similarity Score + Correct Platforms (Whole word match validation)
                 if not matched_game and system:
                     best_ratio = 0.0
                     for candidate in candidates:
@@ -437,6 +449,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                         cand_norm = normalize_string(cand_name)
                         ratio = SequenceMatcher(None, target_norm, cand_norm).ratio()
                         
+                        # Strict whole word boundaries limit false-positive sequence matches
                         cand_words = cand_name.lower().replace(":", "").replace("-", "").split()
                         target_words = search_title.lower().replace(":", "").replace("-", "").split()
                         is_valid_word_match = any(w in cand_words for w in target_words)
@@ -454,7 +467,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                                     confidence_score = ratio
                                     break
 
-                # Pass D: Global Sequence Similarity fallback
+                # Pass D: Global Sequence Similarity fallback with basic text word protection
                 if not matched_game:
                     best_ratio = 0.0
                     for candidate in candidates:
@@ -494,6 +507,17 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                 row_had_active_updates = False
                 extracted = extract_metadata_from_candidate(matched_game)
 
+                # Track temporal alignment discrepancies between local sheet year metrics vs. remote server database indexes
+                # Rule: ONLY compute variations if both the input validation column AND extraction target column coexist
+                if has_date_column and has_release_date_col and year.isdigit() and len(year) == 4 and extracted["release_date"]:
+                    db_year = extracted["release_date"].split("-")[0]
+                    if year != db_year:
+                        count_inaccurate_years += 1
+                        inaccurate_years_queue.append(
+                            f"🗓️  {game_title} ({system if system else 'Unknown Platform'}) — Recorded: {year} vs. IGDB: {db_year}"
+                        )
+
+                # 1. Update Genre (Only if previously empty)
                 if has_genre_col:
                     if needs_genre:
                         if extracted["genre"]:
@@ -507,6 +531,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                     else:
                         log_components.append(f"Genre: {row[genre_key]} (Skipped)")
 
+                # 2. Update Publisher (Only if previously empty)
                 if has_publisher_col:
                     if needs_pub:
                         if extracted["publisher"]:
@@ -520,6 +545,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                     else:
                         log_components.append(f"Publisher: {row[pub_key]} (Skipped)")
 
+                # 3. Update Developer (Only if previously empty)
                 if has_developer_col:
                     if needs_dev:
                         if_dev = extracted["developer"]
@@ -534,6 +560,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                     else:
                         log_components.append(f"Developer: {row[dev_key]} (Skipped)")
 
+                # 4. Update Release Date (Only if previously empty)
                 if has_release_date_col:
                     if needs_date:
                         if extracted["release_date"]:
@@ -550,6 +577,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                 if row_had_active_updates:
                     count_total_successfully_updated_rows += 1
 
+                # Structured Two-Line Streaming Output with blank spacing breaks
                 log_details = " | ".join(log_components)
                 print()
                 print(f"🎮 ({index}/{total_games}) {game_title} [{match_type} Match: {matched_game['name']} (Conf: {int(confidence_score*100)}%)]")
@@ -580,7 +608,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
         if outfile:
             outfile.close()
 
-print("-" * 65)
+print("-" * 70)
 print(f"📊 Summary Metric Tallies:")
 
 if has_genre_col:
@@ -590,53 +618,63 @@ if has_genre_col:
     print(f"  • Genre entries skipped (pre-populated): {genres_skipped}")
 
 if has_publisher_col:
-    print()
+    print()  # Visual break between categories
     print(f"  • Publishers updated: {publishers_updated}")
     print(f"  • Games found with no publisher context listed: {publishers_no_data}")
     print(f"  • Publisher requests missing entirely from IGDB index: {publishers_missing_index}")
     print(f"  • Publisher entries skipped (pre-populated): {publishers_skipped}")
 
 if has_developer_col:
-    print()
+    print()  # Visual break between categories
     print(f"  • Developers updated: {developers_updated}")
     print(f"  • Games found with no developer context listed: {developers_no_data}")
     print(f"  • Developer requests missing entirely from IGDB index: {developers_missing_index}")
     print(f"  • Developer entries skipped (pre-populated): {developers_skipped}")
 
 if has_release_date_col:
-    print()
+    print()  # Visual break between categories
     print(f"  • Release Dates updated: {dates_updated}")
     print(f"  • Games found with no release date context listed: {dates_no_data}")
     print(f"  • Release Date requests missing entirely from IGDB index: {dates_missing_index}")
     print(f"  • Release Date entries skipped (pre-populated): {dates_skipped}")
 
-print()
+print()  # Visual break before global error counts
 print(f"  • Global titles completely missing from IGDB index: {count_not_found}")
 if has_episode_column and filter_by_episode:
     print(f"  • Games skipped (no assigned episode number): {count_skipped_no_episode}")
+if has_date_column and has_release_date_col:
+    print(f"  • Games whose originally recorded release years were inaccurate: {count_inaccurate_years}")
 print(f"  • Total games updated: {count_total_successfully_updated_rows} out of {total_games}")
-print("-" * 65)
+print("-" * 70)
+
+# Append read-only printout list mapping chronological historical variance data profiles
+if has_date_column and has_release_date_col and inaccurate_years_queue:
+    print("\n📋 Detailed List of Inaccurate Spreadsheet Release Years:")
+    print("-" * 70)
+    for skew_item in inaccurate_years_queue:
+        print(skew_item)
+    print("-" * 70)
 
 # --- POST-RUN TRIAGE PASSTHROUGH ENGINE ---
 if triage_queue and enable_triage:
     if triage_mode in ('l', 'list'):
         # Mode 3: Print structured read-only summary list of all ambiguous matches found during run
         print(f"\n📋 Games with low confidence matches: {len(triage_queue)}")
-        print("-" * 65)
+        print("-" * 70)
         for t_item in triage_queue:
             print(f"🕹️  {t_item['original_title']} ({t_item['original_system']}) matched with '{t_item['auto_selected']['name']}' — {t_item['confidence_percentage']}% confident")
-        print("-" * 65)
+        print("-" * 70)
         
     elif triage_mode in ('y', 'yes'):
         # Mode 1: Run standard step-by-step interactive resolution menu flow
         triage_mutated_count = 0
         
         for q_idx, item in enumerate(triage_queue, start=1):
-            print("\n" + "=" * 65)
+            print("\n" + "=" * 70)
             print(f"🔍 TRIAGE ITEM ({q_idx}/{len(triage_queue)})")
             print(f"Spreadsheet Title: '{item['original_title']}' | Platform: '{item['original_system']}'")
             print(f"Automatically selected: '{item['auto_selected']['name']}'")
-            print("-" * 65)
+            print("-" * 70)
             print("Select the correct database entry:")
             
             for o_idx, opt in enumerate(item['options_pool'], start=1):
@@ -660,9 +698,10 @@ if triage_queue and enable_triage:
                 chosen_candidate = item['options_pool'][int(selection) - 1]
                 
             if chosen_candidate and chosen_candidate['id'] != item['auto_selected']['id']:
+                # Recalculate cell injections specifically for the manually selected candidate
                 new_meta = extract_metadata_from_candidate(chosen_candidate)
                 if has_genre_col: item['row_reference'][genre_key] = new_meta["genre"] or "No genre data available"
-                if hover_pub_col := has_publisher_col: item['row_reference'][pub_key] = new_meta["publisher"] or "Unknown"
+                if has_publisher_col: item['row_reference'][pub_key] = new_meta["publisher"] or "Unknown"
                 if has_developer_col: item['row_reference'][dev_key] = new_meta["developer"] or "Unknown"
                 if has_release_date_col: item['row_reference'][rel_date_key] = new_meta["release_date"] or "Unknown"
                 triage_mutated_count += 1
@@ -670,12 +709,14 @@ if triage_queue and enable_triage:
 
         if triage_mutated_count > 0 and not is_dry_run:
             print(f"\n💾 Committing {triage_mutated_count} triage manual overrides to: {OUTPUT_CSV}...")
+            # Stream revised database back out into file structure
             with open(OUTPUT_CSV, mode='w', encoding='utf-8', newline='') as final_outfile:
                 final_writer = csv.DictWriter(final_outfile, fieldnames=output_fields, extrasaction='ignore')
                 if has_title_line:
                     final_outfile.write(title_line)
                 final_writer.writeheader()
                 
+                # Write back skipped elements
                 if has_episode_column and filter_by_episode:
                     for raw_row in raw_rows_list:
                         row = {k.replace("\xef\xbb\xbf", "").strip(): v for k, v in raw_row.items() if k is not None}
@@ -685,6 +726,7 @@ if triage_queue and enable_triage:
                             clean_row = {field: row.get(field, "") for field in output_fields}
                             final_writer.writerow(clean_row)
                             
+                # Write back all core matching elements (including your revisions)
                 for processed_row in rows_list:
                     clean_row = {field: processed_row.get(field, "") for field in output_fields}
                     final_writer.writerow(clean_row)

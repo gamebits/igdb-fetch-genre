@@ -140,3 +140,23 @@ Perform a dry run? (Stream updates but do not write to file) [y/N]:
 *   **Simulation Mode (y / yes):** If activated, the script executes all standard remote lookup logic, structural validation rules, and text similarity metrics. The entire two-line execution log streams to your terminal in real-time, and a complete breakdown of granular summary metrics is compiled at the end. However, **no changes are committed to disk, and no output CSV files are generated or overwritten**. This is ideal for checking API matching behaviors or testing rate limits safely.
     
 *   **Standard Modification Mode (Default / Enter / n):** Bypasses the simulation. The script checks for local naming conflicts, prompts for overwrite confirmations if necessary, and permanently commits all recovered structural metadata directly into your newly generated output file.
+
+#### Historical Timeline Drift Validation
+If your source spreadsheet includes a standard `Date` column (the four-digit tracking year used to tighten API filters) *and* your execution environment is actively fetching and populating a `Release Date` metadata field from IGDB, the utility automatically monitors temporal timeline drift. 
+
+During the execution cycle, the script cross-checks the four-digit string of your original `Date` cells against the year substring returned by the authoritative database server. If they differ, the metric engine logs the discrepancy.
+
+At the very end of processing, a dedicated metric line prints out:
+```text
+  • Games whose originally recorded release years were inaccurate: 2
+```
+
+Whenever this counter is greater than zero, a detailed timeline validation block dynamically builds at the bottom of the log workspace, displaying a clean list of individual drift entries to simplify error tracking:
+
+```text
+📋 Detailed List of Inaccurate Spreadsheet Release Years:
+-----------------------------------------------------------------
+🗓️  Color a Dinosaur (NES) — Recorded: 1993 vs. IGDB: 1994
+🗓️  Chronicles of Mystara (PC) — Recorded: 2013 vs. IGDB: 2014
+-----------------------------------------------------------------
+```
