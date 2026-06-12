@@ -62,6 +62,9 @@ try:
     auth_response = requests.post(auth_url)
     auth_response.raise_for_status()
     access_token = auth_response.json().get("access_token")
+    if not access_token:
+        print("❌ Error: Twitch server response succeeded, but no 'access_token' was found in the payload.")
+        sys.exit(1)
 except Exception as e:
     print(f"Authentication failed: {e}")
     sys.exit(1)
