@@ -134,6 +134,12 @@ def expand_platform_aliases(system_name):
     }
     return mapping.get(norm, [system_name])
 
+# Escape user-provided titles before embedding them in APICalypse query literals
+def escape_apicalypse_string(text):
+    if not text:
+        return ""
+    return text.replace("\\", "\\\\").replace('"', '\\"')
+
 # --- Step 3: Stream, Filter, Query, and Write Rows ---
 print(f"Opening {INPUT_CSV} for processing...")
 
@@ -399,6 +405,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
             
             game_title = title.strip()
             search_title = game_title.replace("√©", "e").replace("‚Äôs", "'").replace("‚Äô", "'")
+            escaped_search_title = escape_apicalypse_string(search_title)
             target_norm = normalize_string(search_title)
             
             candidates = None
@@ -406,7 +413,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
             
             # --- STAGE 1A: Exact Target Year Search ---
             if year and year.isdigit() and len(year) == 4:
-                body_exact_year = f'search "{search_title}"; fields {fields_payload}; where release_dates.y = {year}; limit 20;'
+                body_exact_year = f'search "{escaped_search_title}"; fields {fields_payload}; where release_dates.y = {year}; limit 20;'
                 candidates = query_igdb_with_retry(body_exact_year)
                 match_type = f"Exact Year [{year}]"
                 
@@ -421,7 +428,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
                 target_year = int(year)
                 min_year = target_year - 1
                 max_year = target_year + 1
-                body_year = f'search "{search_title}"; fields {fields_payload}; where release_dates.y >= {min_year} & release_dates.y <= {max_year}; limit 20;'
+                body_year = f'search "{escaped_search_title}"; fields {fields_payload}; where release_dates.y >= {min_year} & release_dates.y <= {max_year}; limit 20;'
                 candidates = query_igdb_with_retry(body_year)
                 match_type = f"Year Window [{min_year}-{max_year}]"
                 
@@ -433,13 +440,13 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
 
             # --- STAGE 2: Broad Search Fallback ---
             if not candidates:
-                body_exact = f'search "{search_title}"; fields {fields_payload}; limit 20;'
+                body_exact = f'search "{escaped_search_title}"; fields {fields_payload}; limit 20;'
                 candidates = query_igdb_with_retry(body_exact)
                 match_type = "Standard Search"
             
             # --- STAGE 3: Fuzzy Wildcard Fallback ---
             if not candidates:
-                fuzzy_title = target_norm
+                fuzzy_title = escape_apicalypse_string(target_norm)
                 body_fuzzy = f'fields {fields_payload}; where name ~ *"{fuzzy_title}"*; limit 20;'
                 candidates = query_igdb_with_retry(body_fuzzy)
                 match_type = "Fuzzy"
