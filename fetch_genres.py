@@ -266,7 +266,7 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
     total_games = len(rows_list)
 
     # Build optimized payload field string
-    query_fields = ["name", "platforms.name", "first_release_date", "release_dates.date", "release_dates.platform.name"]
+    query_fields = ["id", "name", "platforms.name", "first_release_date", "release_dates.date", "release_dates.platform.name"]
     if has_genre_col: query_fields.append("genres.name")
     if has_publisher_col or has_developer_col:
         query_fields.extend([
