@@ -10,7 +10,7 @@ Before running this utility, ensure that your local terminal environment has the
 
 * **zsh shell:** A functional Terminal instance running the standard `zsh` shell binary.
 * **Python 3:** An accessible local installation of Python (v3.x).
-* **Requests module:** The Python `requests` library installed within your active Python workspace environment or local virtual environment.
+* **Python dependencies:** The `requests` library, installable from the included `requirements.txt` (see section 3).
 
 ---
 
@@ -96,6 +96,10 @@ Before you execute the script for the first time, you must give your user profil
 2. Modify the file system privileges to make the script file executable:
     ```zsh
     chmod +x fetch_genres.py
+    ```
+3. Install the Python dependencies from `requirements.txt`:
+    ```zsh
+    pip install -r requirements.txt
     ```
 
 ---
