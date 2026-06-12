@@ -23,6 +23,7 @@ except ImportError:
 # --- Configuration ---
 CLIENT_ID = os.environ.get("IGDB_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("IGDB_CLIENT_SECRET")
+REQUEST_TIMEOUT = (10, 30)  # (connect, read) seconds
 
 missing_vars = []
 if not CLIENT_ID:
@@ -57,9 +58,17 @@ OUTPUT_CSV = f"{file_base}-Genres{file_ext}"
 
 # --- Step 2: Authenticate with Twitch OAuth2 ---
 print("Authenticating with Twitch OAuth2...")
-auth_url = f"https://id.twitch.tv/oauth2/token?client_id={CLIENT_ID}&client_secret={CLIENT_SECRET}&grant_type=client_credentials"
+auth_url = "https://id.twitch.tv/oauth2/token"
 try:
-    auth_response = requests.post(auth_url)
+    auth_response = requests.post(
+        auth_url,
+        data={
+            "client_id": CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
+            "grant_type": "client_credentials",
+        },
+        timeout=REQUEST_TIMEOUT,
+    )
     auth_response.raise_for_status()
     access_token = auth_response.json().get("access_token")
     if not access_token:
@@ -79,7 +88,12 @@ headers = {
 def query_igdb_with_retry(query_body, max_retries=5):
     delay = 1.0
     for attempt in range(max_retries):
-        response = requests.post("https://api.igdb.com/v4/games", headers=headers, data=query_body)
+        response = requests.post(
+            "https://api.igdb.com/v4/games",
+            headers=headers,
+            data=query_body,
+            timeout=REQUEST_TIMEOUT,
+        )
         
         if response.status_code == 200:
             return response.json()
