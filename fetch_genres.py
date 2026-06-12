@@ -84,27 +84,38 @@ headers = {
     "Accept": "application/json"
 }
 
-# Helper function to request IGDB with rate-limit protection
+# Helper function to request IGDB with rate-limit and network-error protection
 def query_igdb_with_retry(query_body, max_retries=5):
     delay = 1.0
     for attempt in range(max_retries):
-        response = requests.post(
-            "https://api.igdb.com/v4/games",
-            headers=headers,
-            data=query_body,
-            timeout=REQUEST_TIMEOUT,
-        )
-        
+        try:
+            response = requests.post(
+                "https://api.igdb.com/v4/games",
+                headers=headers,
+                data=query_body,
+                timeout=REQUEST_TIMEOUT,
+            )
+        except requests.exceptions.RequestException as e:
+            print(f"⚠️ Network error ({type(e).__name__}: {e}). Backing off for {delay}s (Attempt {attempt+1}/{max_retries})...")
+            if attempt == max_retries - 1:
+                print("❌ Max retries reached for network errors.")
+                return None
+            time.sleep(delay)
+            delay *= 2
+            continue
+
         if response.status_code == 200:
             return response.json()
         elif response.status_code == 429:
             print(f"⚠️ Rate limited (429). Backing off for {delay}s (Attempt {attempt+1}/{max_retries})...")
+            if attempt == max_retries - 1:
+                print("❌ Max retries reached for rate limiting.")
+                return None
             time.sleep(delay)
             delay *= 2
         else:
             print(f"⚠️ HTTP Error {response.status_code}")
             return None
-    print("❌ Max retries reached for rate limiting.")
     return None
 
 # Helper function to normalize text for logical matching evaluation
