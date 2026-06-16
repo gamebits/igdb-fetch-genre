@@ -6,14 +6,14 @@ It was vibe-coded by Ken Gagne using Google Gemini for use with the _[New Game P
 
 ## Table of Contents
 
-- [1. Terminal Prerequisites](#terminal-prerequisites)
-- [2. Setting Up Your IGDB API Account](#1-setting-up-your-igdb-api-account)
-- [3. File and Directory Layout](#2-file-and-directory-layout)
+- [1. Terminal Prerequisites](#1-terminal-prerequisites)
+- [2. Setting Up Your IGDB API Account](#2-setting-up-your-igdb-api-account)
+- [3. File and Directory Layout](#3-file-and-directory-layout)
   - [Overwrite Safeguard](#overwrite-safeguard)
   - [Expected & Acceptable Spreadsheet Layouts](#expected--acceptable-spreadsheet-layouts)
   - [Metadata Detection & Query Precision](#metadata-detection--query-precision)
-- [4. Preparing the Executable Utility](#3-preparing-the-executable-utility)
-- [5. Injecting Credentials & Running the Script](#4-injecting-credentials--running-the-script)
+- [4. Preparing the Executable Utility](#4-preparing-the-executable-utility)
+- [5. Injecting Credentials & Running the Script](#5-injecting-credentials--running-the-script)
   - [Smart Post-Run Triage Engine (Optional)](#smart-post-run-triage-engine-optional)
   - [Non-Destructive Exploration: The Dry Run Feature](#non-destructive-exploration-the-dry-run-feature)
   - [Historical Timeline Drift Validation](#historical-timeline-drift-validation)
