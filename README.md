@@ -18,7 +18,7 @@ It was vibe-coded by Ken Gagne using Google Gemini for use with the _[New Game P
   - [Non-Destructive Exploration: The Dry Run Feature](#non-destructive-exploration-the-dry-run-feature)
   - [Historical Timeline Drift Validation](#historical-timeline-drift-validation)
 
-## Terminal Prerequisites
+## 1. Terminal Prerequisites
 
 Before running this utility, ensure that your local terminal environment has the following prerequisites configured (installation of these components is out of scope for this guide):
 
@@ -28,7 +28,7 @@ Before running this utility, ensure that your local terminal environment has the
 
 ---
 
-## 1. Setting Up Your IGDB API Account
+## 2. Setting Up Your IGDB API Account
 
 IGDB processes all public API integrations natively through the **Twitch Developer Console**. The endpoints are entirely free for personal and non-commercial application development.
 
@@ -46,7 +46,7 @@ IGDB processes all public API integrations natively through the **Twitch Develop
 
 ---
 
-## 2. File and Directory Layout
+## 3. File and Directory Layout
 
 For the script to work flawlessly without manual path overrides, save the processing script and your target master list spreadsheet **in the exact same folder**.
 
@@ -99,7 +99,7 @@ The utility detects and leverages optional metadata columns to drastically impro
 
 ---
 
-## 3. Preparing the Executable Utility
+## 4. Preparing the Executable Utility
 
 Before you execute the script for the first time, you must give your user profile file system permission to execute the Python script as a standalone system command.
 
@@ -118,7 +118,7 @@ Before you execute the script for the first time, you must give your user profil
 
 ---
 
-## 4. Injecting Credentials & Running the Script
+## 5. Injecting Credentials & Running the Script
 
 To maximize safety and shield your private API tokens from being accidentally saved inside plain code files, the utility reads your IGDB details straight from your terminal's active system memory space. 
 
