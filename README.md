@@ -4,6 +4,20 @@ This utility reads a game collection list from a CSV spreadsheet, queries the **
 
 It was vibe-coded by Ken Gagne using Google Gemini for use with the _[New Game Plus](https://ngppodcast.com/)_ podcast's [Retro Master List](https://bit.ly/RetroML), but it can be adapted to any use case or CSV.
 
+## Table of Contents
+
+- [Terminal Prerequisites](#terminal-prerequisites)
+- [1. Setting Up Your IGDB API Account](#1-setting-up-your-igdb-api-account)
+- [2. File and Directory Layout](#2-file-and-directory-layout)
+  - [Overwrite Safeguard](#overwrite-safeguard)
+  - [Expected & Acceptable Spreadsheet Layouts](#expected--acceptable-spreadsheet-layouts)
+  - [Metadata Detection & Query Precision](#metadata-detection--query-precision)
+- [3. Preparing the Executable Utility](#3-preparing-the-executable-utility)
+- [4. Injecting Credentials & Running the Script](#4-injecting-credentials--running-the-script)
+  - [Smart Post-Run Triage Engine (Optional)](#smart-post-run-triage-engine-optional)
+  - [Non-Destructive Exploration: The Dry Run Feature](#non-destructive-exploration-the-dry-run-feature)
+  - [Historical Timeline Drift Validation](#historical-timeline-drift-validation)
+
 ## Terminal Prerequisites
 
 Before running this utility, ensure that your local terminal environment has the following prerequisites configured (installation of these components is out of scope for this guide):
