@@ -40,6 +40,10 @@ if missing_vars:
 # Labels on a Trello board that describe status or ownership rather than hardware platforms.
 TRELLO_NON_PLATFORM_LABELS = frozenset({"unreleased", "collection"})
 
+# Script-written sentinel values that may be eligible for IGDB refresh when opted in.
+PLACEHOLDER_UNKNOWN = "unknown"
+PLACEHOLDER_NO_GENRE = "no genre data available"
+
 # --- Step 1: Prompt the User for Input File ---
 INPUT_FILE = input("Enter the input filename (CSV or Trello JSON export, e.g., Games.csv or trello.json): ").strip()
 
@@ -262,6 +266,50 @@ def extract_search_year(row, date_key, rel_date_key):
 
     return ""
 
+def is_placeholder_value(value, field_kind="generic"):
+    """Return True when a cell contains a script-written placeholder value."""
+    normalized = (value or "").strip().lower()
+    if not normalized:
+        return False
+    if normalized == PLACEHOLDER_UNKNOWN:
+        return True
+    if field_kind == "genre" and normalized == PLACEHOLDER_NO_GENRE:
+        return True
+    return False
+
+def is_missing_value(value, refresh_placeholders=False, field_kind="generic"):
+    """Return True when a metadata cell is blank or an opted-in placeholder."""
+    stripped = (value or "").strip()
+    if not stripped:
+        return True
+    if refresh_placeholders and is_placeholder_value(stripped, field_kind):
+        return True
+    return False
+
+def apply_text_metadata_update(
+    prior_value,
+    extracted_value,
+    placeholder_fallback,
+    refresh_placeholders,
+    field_kind,
+):
+    """Upgrade-only metadata write helper for blank cells and opted-in placeholders."""
+    prior = (prior_value or "").strip()
+    was_placeholder = is_placeholder_value(prior, field_kind)
+
+    if extracted_value:
+        if refresh_placeholders and was_placeholder:
+            return extracted_value, "refreshed"
+        return extracted_value, "updated"
+
+    if was_placeholder and refresh_placeholders:
+        return prior, "still_unknown"
+
+    if not prior:
+        return placeholder_fallback, "no_data"
+
+    return prior, "unchanged"
+
 def prompt_metadata_selection(default_choices="g"):
     """Ask which IGDB metadata fields to fetch when headers do not declare them."""
     print("\nWhich metadata should be fetched from IGDB?")
@@ -394,30 +442,42 @@ genres_updated = 0
 genres_no_data = 0
 genres_missing_index = 0
 genres_skipped = 0
+genres_refreshed = 0
+genres_still_unknown = 0
 
 publishers_updated = 0
 publishers_no_data = 0
 publishers_missing_index = 0
 publishers_skipped = 0
+publishers_refreshed = 0
+publishers_still_unknown = 0
 
 developers_updated = 0
 developers_no_data = 0
 developers_missing_index = 0
 developers_skipped = 0
+developers_refreshed = 0
+developers_still_unknown = 0
 
 dates_updated = 0
 dates_no_data = 0
 dates_missing_index = 0
 dates_skipped = 0
+dates_refreshed = 0
+dates_still_unknown = 0
 
 platforms_updated = 0
 platforms_no_data = 0
 platforms_missing_index = 0
 platforms_skipped = 0
+platforms_refreshed = 0
+platforms_still_unknown = 0
 
 # Storage bucket arrays to cache formatting strings of detected variations
 inaccurate_years_queue = []
 inaccurate_platforms_queue = []
+
+refresh_placeholders = False
 
 fieldnames, raw_rows_list, has_title_line, title_line = load_input_file(INPUT_FILE)
 
@@ -504,6 +564,13 @@ if True:
     # Integrated triage configuration prompt right before dry run parameters
     triage_mode = input("Manually confirm potential mismatches after the automated run? [Y]es (interactive), [L]ist mismatches, [N]o (skip) [y/l/N]: ").strip().lower()
     enable_triage = triage_mode in ('y', 'yes', 'l', 'list')
+
+    refresh_confirm = input(
+        "Re-query rows with placeholder values (Unknown / No genre data available)? [y/N]: "
+    ).strip().lower()
+    refresh_placeholders = refresh_confirm in ('y', 'yes')
+    if refresh_placeholders:
+        print("ℹ️ Placeholder refresh enabled. Rows marked Unknown or No genre data available may be overwritten with newer IGDB data.")
 
     # Final prompt offering a dry-run alternative right before operations begin
     dry_run_confirm = input("Perform a dry run? (Stream updates but do not write to file) [y/N]: ").strip().lower()
@@ -623,17 +690,17 @@ if True:
             if has_genre_col and genre_key not in row:
                 row[genre_key] = ""
 
-            needs_genre = has_genre_col and not row.get(genre_key, "").strip()
-            needs_pub = has_publisher_col and not row.get(pub_key, "").strip()
-            needs_dev = has_developer_col and not row.get(dev_key, "").strip()
-            release_date_is_blank = has_release_date_in_output and not row.get(rel_date_key, "").strip()
+            needs_genre = has_genre_col and is_missing_value(row.get(genre_key, ""), refresh_placeholders, "genre")
+            needs_pub = has_publisher_col and is_missing_value(row.get(pub_key, ""), refresh_placeholders)
+            needs_dev = has_developer_col and is_missing_value(row.get(dev_key, ""), refresh_placeholders)
+            release_date_is_blank = has_release_date_in_output and is_missing_value(row.get(rel_date_key, ""), refresh_placeholders)
             needs_date = has_release_date_col and release_date_is_blank
-            needs_platform = has_platform_output_col and not row.get(platform_output_key, "").strip()
+            needs_platform = has_platform_output_col and is_missing_value(row.get(platform_output_key, ""), refresh_placeholders)
 
             if has_genre_col and not needs_genre: genres_skipped += 1
             if has_publisher_col and not needs_pub: publishers_skipped += 1
             if has_developer_col and not needs_dev: developers_skipped += 1
-            if has_release_date_col and has_release_date_in_output and not release_date_is_blank: dates_skipped += 1
+            if has_release_date_col and has_release_date_in_output and not needs_date: dates_skipped += 1
             if has_platform_output_col and not needs_platform: platforms_skipped += 1
 
             if (
@@ -819,71 +886,140 @@ if True:
                 # Update Genre Column
                 if has_genre_col:
                     if needs_genre:
-                        if extracted["genre"]:
-                            row[genre_key] = extracted["genre"]
+                        prior_genre = row.get(genre_key, "")
+                        new_genre, genre_outcome = apply_text_metadata_update(
+                            prior_genre,
+                            extracted["genre"],
+                            "No genre data available",
+                            refresh_placeholders,
+                            "genre",
+                        )
+                        row[genre_key] = new_genre
+                        if genre_outcome == "updated":
                             genres_updated += 1
                             row_had_active_updates = True
+                            log_components.append(f"Genre: {new_genre}")
+                        elif genre_outcome == "refreshed":
+                            genres_refreshed += 1
+                            row_had_active_updates = True
+                            log_components.append(f"Genre: {prior_genre.strip()} → {new_genre} (Refreshed)")
+                        elif genre_outcome == "still_unknown":
+                            genres_still_unknown += 1
+                            log_components.append(f"Genre: {new_genre} (Still unknown)")
                         else:
-                            row[genre_key] = "No genre data available"
                             genres_no_data += 1
-                        log_components.append(f"Genre: {row[genre_key]}")
+                            log_components.append(f"Genre: {new_genre}")
                     else:
                         log_components.append(f"Genre: {row[genre_key]} (Skipped)")
 
                 # Update Publisher Column
                 if has_publisher_col:
                     if needs_pub:
-                        if extracted["publisher"]:
-                            row[pub_key] = extracted["publisher"]
+                        prior_pub = row.get(pub_key, "")
+                        new_pub, pub_outcome = apply_text_metadata_update(
+                            prior_pub,
+                            extracted["publisher"],
+                            "Unknown",
+                            refresh_placeholders,
+                        )
+                        row[pub_key] = new_pub
+                        if pub_outcome == "updated":
                             publishers_updated += 1
                             row_had_active_updates = True
+                            log_components.append(f"Publisher: {new_pub}")
+                        elif pub_outcome == "refreshed":
+                            publishers_refreshed += 1
+                            row_had_active_updates = True
+                            log_components.append(f"Publisher: {prior_pub.strip()} → {new_pub} (Refreshed)")
+                        elif pub_outcome == "still_unknown":
+                            publishers_still_unknown += 1
+                            log_components.append(f"Publisher: {new_pub} (Still unknown)")
                         else:
-                            row[pub_key] = "Unknown"
                             publishers_no_data += 1
-                        log_components.append(f"Publisher: {row[pub_key]}")
+                            log_components.append(f"Publisher: {new_pub}")
                     else:
                         log_components.append(f"Publisher: {row[pub_key]} (Skipped)")
 
                 # Update Developer Column
                 if has_developer_col:
                     if needs_dev:
-                        if_dev = extracted["developer"]
-                        if if_dev:
-                            row[dev_key] = if_dev
+                        prior_dev = row.get(dev_key, "")
+                        new_dev, dev_outcome = apply_text_metadata_update(
+                            prior_dev,
+                            extracted["developer"],
+                            "Unknown",
+                            refresh_placeholders,
+                        )
+                        row[dev_key] = new_dev
+                        if dev_outcome == "updated":
                             developers_updated += 1
                             row_had_active_updates = True
+                            log_components.append(f"Developer: {new_dev}")
+                        elif dev_outcome == "refreshed":
+                            developers_refreshed += 1
+                            row_had_active_updates = True
+                            log_components.append(f"Developer: {prior_dev.strip()} → {new_dev} (Refreshed)")
+                        elif dev_outcome == "still_unknown":
+                            developers_still_unknown += 1
+                            log_components.append(f"Developer: {new_dev} (Still unknown)")
                         else:
-                            row[dev_key] = "Unknown"
                             developers_no_data += 1
-                        log_components.append(f"Developer: {row[dev_key]}")
+                            log_components.append(f"Developer: {new_dev}")
                     else:
                         log_components.append(f"Developer: {row[dev_key]} (Skipped)")
 
                 # Update Release Date Column
                 if needs_date:
-                    if extracted["release_date"]:
-                        row[rel_date_key] = extracted["release_date"]
+                    prior_date = row.get(rel_date_key, "")
+                    new_date, date_outcome = apply_text_metadata_update(
+                        prior_date,
+                        extracted["release_date"],
+                        "Unknown",
+                        refresh_placeholders,
+                    )
+                    row[rel_date_key] = new_date
+                    if date_outcome == "updated":
                         dates_updated += 1
                         row_had_active_updates = True
-                        log_components.append(f"Release Date: {row[rel_date_key]}")
+                        log_components.append(f"Release Date: {new_date}")
+                    elif date_outcome == "refreshed":
+                        dates_refreshed += 1
+                        row_had_active_updates = True
+                        log_components.append(f"Release Date: {prior_date.strip()} → {new_date} (Refreshed)")
+                    elif date_outcome == "still_unknown":
+                        dates_still_unknown += 1
+                        log_components.append(f"Release Date: {new_date} (Still unknown)")
                     else:
-                        row[rel_date_key] = "Unknown"
                         dates_no_data += 1
-                        log_components.append(f"Release Date: {row[rel_date_key]}")
+                        log_components.append(f"Release Date: {new_date}")
                 elif has_release_date_col:
                     log_components.append(f"Release Date: {row[rel_date_key]} (Skipped)")
 
                 # Update Original Platform Column
                 if has_platform_output_col:
                     if needs_platform:
-                        if extracted["original_platform"]:
-                            row[platform_output_key] = extracted["original_platform"]
+                        prior_platform = row.get(platform_output_key, "")
+                        new_platform, platform_outcome = apply_text_metadata_update(
+                            prior_platform,
+                            extracted["original_platform"],
+                            "Unknown",
+                            refresh_placeholders,
+                        )
+                        row[platform_output_key] = new_platform
+                        if platform_outcome == "updated":
                             platforms_updated += 1
                             row_had_active_updates = True
+                            log_components.append(f"Platform: {new_platform}")
+                        elif platform_outcome == "refreshed":
+                            platforms_refreshed += 1
+                            row_had_active_updates = True
+                            log_components.append(f"Platform: {prior_platform.strip()} → {new_platform} (Refreshed)")
+                        elif platform_outcome == "still_unknown":
+                            platforms_still_unknown += 1
+                            log_components.append(f"Platform: {new_platform} (Still unknown)")
                         else:
-                            row[platform_output_key] = "Unknown"
                             platforms_no_data += 1
-                        log_components.append(f"Platform: {row[platform_output_key]}")
+                            log_components.append(f"Platform: {new_platform}")
                     else:
                         log_components.append(f"Platform: {row[platform_output_key]} (Skipped)")
 
@@ -901,20 +1037,40 @@ if True:
                 if has_confidence_col:
                     row[confidence_key] = "0%"
                 if has_genre_col and needs_genre:
-                    row[genre_key] = "Unknown"
-                    genres_missing_index += 1
+                    prior_genre = row.get(genre_key, "").strip()
+                    if refresh_placeholders and is_placeholder_value(prior_genre, "genre"):
+                        genres_still_unknown += 1
+                    else:
+                        row[genre_key] = "Unknown"
+                        genres_missing_index += 1
                 if has_publisher_col and needs_pub:
-                    row[pub_key] = "Unknown"
-                    publishers_missing_index += 1
+                    prior_pub = row.get(pub_key, "").strip()
+                    if refresh_placeholders and is_placeholder_value(prior_pub):
+                        publishers_still_unknown += 1
+                    else:
+                        row[pub_key] = "Unknown"
+                        publishers_missing_index += 1
                 if has_developer_col and needs_dev:
-                    row[dev_key] = "Unknown"
-                    developers_missing_index += 1
-                if release_date_is_blank and has_release_date_col:
-                    row[rel_date_key] = "Unknown"
-                    dates_missing_index += 1
+                    prior_dev = row.get(dev_key, "").strip()
+                    if refresh_placeholders and is_placeholder_value(prior_dev):
+                        developers_still_unknown += 1
+                    else:
+                        row[dev_key] = "Unknown"
+                        developers_missing_index += 1
+                if needs_date:
+                    prior_date = row.get(rel_date_key, "").strip()
+                    if refresh_placeholders and is_placeholder_value(prior_date):
+                        dates_still_unknown += 1
+                    else:
+                        row[rel_date_key] = "Unknown"
+                        dates_missing_index += 1
                 if has_platform_output_col and needs_platform:
-                    row[platform_output_key] = "Unknown"
-                    platforms_missing_index += 1
+                    prior_platform = row.get(platform_output_key, "").strip()
+                    if refresh_placeholders and is_placeholder_value(prior_platform):
+                        platforms_still_unknown += 1
+                    else:
+                        row[platform_output_key] = "Unknown"
+                        platforms_missing_index += 1
                 count_not_found += 1
             
             clean_row = {field: row.get(field, "") for field in output_fields}
@@ -930,6 +1086,9 @@ print(f"📊 Summary Metric Tallies:")
 
 if has_genre_col:
     print(f"  • Genres updated: {genres_updated}")
+    if refresh_placeholders:
+        print(f"  • Genres refreshed from placeholders: {genres_refreshed}")
+        print(f"  • Genres still unknown after refresh: {genres_still_unknown}")
     print(f"  • Games found with no genre context listed: {genres_no_data}")
     print(f"  • Genre requests missing entirely from IGDB index: {genres_missing_index}")
     print(f"  • Genre entries skipped (pre-populated): {genres_skipped}")
@@ -937,6 +1096,9 @@ if has_genre_col:
 if has_publisher_col:
     print()
     print(f"  • Publishers updated: {publishers_updated}")
+    if refresh_placeholders:
+        print(f"  • Publishers refreshed from placeholders: {publishers_refreshed}")
+        print(f"  • Publishers still unknown after refresh: {publishers_still_unknown}")
     print(f"  • Games found with no publisher context listed: {publishers_no_data}")
     print(f"  • Publisher requests missing entirely from IGDB index: {publishers_missing_index}")
     print(f"  • Publisher entries skipped (pre-populated): {publishers_skipped}")
@@ -944,6 +1106,9 @@ if has_publisher_col:
 if has_developer_col:
     print()
     print(f"  • Developers updated: {developers_updated}")
+    if refresh_placeholders:
+        print(f"  • Developers refreshed from placeholders: {developers_refreshed}")
+        print(f"  • Developers still unknown after refresh: {developers_still_unknown}")
     print(f"  • Games found with no developer context listed: {developers_no_data}")
     print(f"  • Developer requests missing entirely from IGDB index: {developers_missing_index}")
     print(f"  • Developer entries skipped (pre-populated): {developers_skipped}")
@@ -951,6 +1116,9 @@ if has_developer_col:
 if has_release_date_col or has_release_date_in_output:
     print()
     print(f"  • Release Dates updated: {dates_updated}")
+    if refresh_placeholders:
+        print(f"  • Release Dates refreshed from placeholders: {dates_refreshed}")
+        print(f"  • Release Dates still unknown after refresh: {dates_still_unknown}")
     print(f"  • Games found with no release date context listed: {dates_no_data}")
     if has_date_column or has_release_date_in_output:
         print(f"  • Games whose originally recorded release years were inaccurate: {count_inaccurate_years}")
@@ -960,6 +1128,9 @@ if has_release_date_col or has_release_date_in_output:
 if has_platform_output_col:
     print()
     print(f"  • Platforms updated: {platforms_updated}")
+    if refresh_placeholders:
+        print(f"  • Platforms refreshed from placeholders: {platforms_refreshed}")
+        print(f"  • Platforms still unknown after refresh: {platforms_still_unknown}")
     print(f"  • Games found with no platform listed: {platforms_no_data}")
     if has_system_column:
         print(f"  • Games whose originally recorded platforms were inaccurate: {count_inaccurate_platforms}")
