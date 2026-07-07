@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import csv
+import json
 import os
 import sys
 import time
+from datetime import datetime
 from difflib import SequenceMatcher
 
 # --- Automated Dependency Installer Guard ---
@@ -35,26 +37,33 @@ if missing_vars:
     print(f"Error: Please set the following environment variable(s): {', '.join(missing_vars)}.")
     sys.exit(1)
 
+# Labels on a Trello board that describe status or ownership rather than hardware platforms.
+TRELLO_NON_PLATFORM_LABELS = frozenset({"unreleased", "collection"})
+
 # --- Step 1: Prompt the User for Input File ---
-INPUT_CSV = input("Enter the input CSV filename (e.g., Games.csv): ").strip()
+INPUT_FILE = input("Enter the input filename (CSV or Trello JSON export, e.g., Games.csv or trello.json): ").strip()
 
 # 1. Fall back to the default filename if the user hits Enter without typing
-if not INPUT_CSV:
-    INPUT_CSV = "Games.csv"
+if not INPUT_FILE:
+    INPUT_FILE = "Games.csv"
 
-# 2. Automatically append .csv if the base name doesn't exist and lacks an extension
-if not os.path.exists(INPUT_CSV):
-    base, ext = os.path.splitext(INPUT_CSV)
-    if not ext and os.path.exists(f"{INPUT_CSV}.csv"):
-        INPUT_CSV = f"{INPUT_CSV}.csv"
+# 2. Automatically append .csv or .json if the base name doesn't exist and lacks an extension
+if not os.path.exists(INPUT_FILE):
+    base, ext = os.path.splitext(INPUT_FILE)
+    if not ext:
+        for candidate_ext in (".csv", ".json"):
+            if os.path.exists(f"{INPUT_FILE}{candidate_ext}"):
+                INPUT_FILE = f"{INPUT_FILE}{candidate_ext}"
+                break
 
-if not os.path.exists(INPUT_CSV):
-    print(f"Error: The file '{INPUT_CSV}' could not be found in the current directory.")
+if not os.path.exists(INPUT_FILE):
+    print(f"Error: The file '{INPUT_FILE}' could not be found in the current directory.")
     sys.exit(1)
 
 # Dynamically calculate the output filename based on the input name
-file_base, file_ext = os.path.splitext(INPUT_CSV)
-OUTPUT_CSV = f"{file_base}-Genres{file_ext}"
+file_base, file_ext = os.path.splitext(INPUT_FILE)
+is_trello_input = file_ext.lower() == ".json"
+OUTPUT_CSV = f"{file_base}-Genres.csv" if is_trello_input else f"{file_base}-Genres{file_ext}"
 
 # --- Step 2: Authenticate with Twitch OAuth2 ---
 print("Authenticating with Twitch OAuth2...")
@@ -141,7 +150,13 @@ def expand_platform_aliases(system_name):
         "GAME CUBE": ["GameCube"],
         "GAMECUBE": ["GameCube"],
         "MASTER SYSTEM": ["Sega Master System"],
-        "SEGA MASTER SYSTEM": ["Sega Master System"]
+        "SEGA MASTER SYSTEM": ["Sega Master System"],
+        "SWITCH": ["Nintendo Switch"],
+        "PS4": ["PlayStation 4"],
+        "PS5": ["PlayStation 5"],
+        "STEAM": ["PC (Microsoft Windows)", "Steam"],
+        "IOS": ["iOS"],
+        "DS": ["Nintendo DS"],
     }
     return mapping.get(norm, [system_name])
 
@@ -151,8 +166,126 @@ def escape_apicalypse_string(text):
         return ""
     return text.replace("\\", "\\\\").replace('"', '\\"')
 
+def prompt_metadata_selection(default_choices="g"):
+    """Ask which IGDB metadata fields to fetch when headers do not declare them."""
+    print("\nWhich metadata should be fetched from IGDB?")
+    print("  [G]enre  [P]ublisher  [D]eveloper  [R]elease Date  [L] platform")
+    print("  Enter one or more choices (e.g., GPD or all)")
+    while True:
+        raw = input(f"Your selection [{default_choices}]: ").strip().lower()
+        if not raw:
+            raw = default_choices
+        if raw == "all":
+            return frozenset("gpdrl")
+        selected = {char for char in raw if char in "gpdrl"}
+        if selected:
+            return frozenset(selected)
+        print("No valid choices entered. Use G, P, D, R, L, or all.")
+
+def inject_missing_metadata_columns(output_fields, columns_to_add, episode_key):
+    """Insert blank metadata columns that were requested but are not yet present."""
+    missing = [col for col in columns_to_add if col not in output_fields]
+    if not missing:
+        return output_fields
+    if episode_key in output_fields:
+        episode_index = output_fields.index(episode_key)
+        return output_fields[:episode_index] + missing + output_fields[episode_index:]
+    return output_fields + missing
+
+def parse_trello_export(data):
+    """Convert a Trello board JSON export into spreadsheet rows and headers."""
+    cards = data.get("cards", [])
+    board_labels = data.get("labels", [])
+    label_names = sorted({lbl["name"] for lbl in board_labels if lbl.get("name")})
+
+    release_field_id = next(
+        (
+            cf["id"]
+            for cf in data.get("customFields", [])
+            if cf.get("name", "").strip().lower() == "release date"
+        ),
+        None,
+    )
+
+    fieldnames = ["Title", "Release Date", "Date", "Original System"] + label_names
+    rows = []
+
+    for card in cards:
+        title = (card.get("name") or "").strip()
+        if not title:
+            continue
+
+        card_labels = {lbl["name"] for lbl in card.get("labels", []) if lbl.get("name")}
+
+        release_date = ""
+        year = ""
+        if release_field_id:
+            for item in card.get("customFieldItems", []):
+                if item.get("idCustomField") != release_field_id:
+                    continue
+                date_val = (item.get("value") or {}).get("date")
+                if not date_val:
+                    break
+                try:
+                    parsed_date = datetime.fromisoformat(date_val.replace("Z", "+00:00"))
+                    release_date = parsed_date.strftime("%Y-%m-%d")
+                    year = release_date[:4]
+                except ValueError:
+                    release_date = date_val[:10]
+                    year = release_date[:4] if len(release_date) >= 4 else ""
+                break
+
+        platform_labels = sorted(
+            name for name in card_labels if name.lower() not in TRELLO_NON_PLATFORM_LABELS
+        )
+        original_system = " / ".join(platform_labels)
+
+        row = {
+            "Title": title,
+            "Release Date": release_date,
+            "Date": year,
+            "Original System": original_system,
+        }
+        for label_name in label_names:
+            row[label_name] = label_name if label_name in card_labels else ""
+        rows.append(row)
+
+    return fieldnames, rows
+
+def load_input_file(filepath):
+    """Load rows from a CSV spreadsheet or a Trello board JSON export."""
+    _, ext = os.path.splitext(filepath.lower())
+
+    if ext == ".json":
+        with open(filepath, encoding="utf-8") as infile:
+            data = json.load(infile)
+        if "cards" not in data or "labels" not in data:
+            print("Error: JSON file does not appear to be a Trello board export.")
+            sys.exit(1)
+        fieldnames, rows = parse_trello_export(data)
+        print(f"Loaded {len(rows)} cards from Trello board export '{data.get('name', filepath)}'.")
+        return fieldnames, rows, False, None
+
+    with open(filepath, mode="r", encoding="utf-8-sig") as infile:
+        first_line = infile.readline()
+        has_title_line = "Title" not in first_line
+        infile.seek(0)
+
+        title_line = None
+        if has_title_line:
+            title_line = infile.readline()
+
+        reader = csv.DictReader(infile)
+        fieldnames = [f.replace("\xef\xbb\xbf", "").strip() for f in reader.fieldnames] if reader.fieldnames else []
+        rows = [
+            {k.replace("\xef\xbb\xbf", "").strip(): v for k, v in raw_row.items() if k is not None}
+            for raw_row in reader
+        ]
+
+    return fieldnames, rows, has_title_line, title_line
+
 # --- Step 3: Stream, Filter, Query, and Write Rows ---
-print(f"Opening {INPUT_CSV} for processing...")
+print(f"Opening {INPUT_FILE} for processing...")
 
 # Initialize highly granular multi-variable metrics engine
 count_not_found = 0
@@ -190,18 +323,9 @@ platforms_skipped = 0
 inaccurate_years_queue = []
 inaccurate_platforms_queue = []
 
-with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
-    first_line = infile.readline()
-    has_title_line = "Title" not in first_line
-    infile.seek(0)
-    
-    if has_title_line:
-        title_line = infile.readline()
-        
-    reader = csv.DictReader(infile)
-    # Clean up hidden header artifacts cleanly right at the moment fieldnames are parsed
-    fieldnames = [f.replace("\xef\xbb\xbf", "").strip() for f in reader.fieldnames] if reader.fieldnames else []
-    
+fieldnames, raw_rows_list, has_title_line, title_line = load_input_file(INPUT_FILE)
+
+if True:
     # --- METADATA HEADER DETECTOR PASS ---
     has_genre_col = any(f.lower() == "genre" for f in fieldnames)
     has_release_date_col = any(f.lower() == "release date" for f in fieldnames)
@@ -231,16 +355,41 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
     if has_developer_col: detected_targets.append("Developer")
     if has_platform_output_col: detected_targets.append(platform_output_key)
 
-    # Dynamic Column Injection Rule: Add Genre ONLY if ALL target columns are missing
-    if not detected_targets:
-        print("\nℹ️ No metadata headers found.")
-        print("Defaulting to Genre-only extraction.")
-        confirm = input("Proceed with adding a Genre column? [Y/n]: ").strip().lower()
+    if is_trello_input or not detected_targets:
+        if is_trello_input:
+            print("\n📋 Trello board export detected.")
+        else:
+            print("\nℹ️ No metadata headers found in CSV.")
+
+        selected_metadata = prompt_metadata_selection()
+
+        has_genre_col = "g" in selected_metadata
+        has_publisher_col = "p" in selected_metadata
+        has_developer_col = "d" in selected_metadata
+        has_release_date_col = "r" in selected_metadata
+        has_platform_output_col = "l" in selected_metadata
+
+        genre_key = next((f for f in fieldnames if f.lower() == "genre"), "Genre")
+        pub_key = next((f for f in fieldnames if f.lower() == "publisher"), "Publisher")
+        dev_key = next((f for f in fieldnames if f.lower() == "developer"), "Developer")
+        rel_date_key = next((f for f in fieldnames if f.lower() == "release date"), "Release Date")
+        platform_output_key = next(
+            (f for f in fieldnames if f.lower() in ("platform", "original platform")),
+            "Platform",
+        )
+
+        detected_targets = []
+        if has_genre_col: detected_targets.append("Genre")
+        if has_release_date_col: detected_targets.append("Release Date")
+        if has_publisher_col: detected_targets.append("Publisher")
+        if has_developer_col: detected_targets.append("Developer")
+        if has_platform_output_col: detected_targets.append(platform_output_key)
+
+        print(f"\n📋 Metadata to fetch: {', '.join(detected_targets)}")
+        confirm = input("Proceed with filling missing fields for these columns? [Y/n]: ").strip().lower()
         if confirm in ('n', 'no'):
             print("Operation aborted by user.")
             sys.exit(0)
-        has_genre_col = True
-        detected_targets.append("Genre")
     else:
         print(f"\n📋 Detected metadata columns: {', '.join(detected_targets)}")
         confirm = input("Proceed with filling missing fields for these columns? [Y/n]: ").strip().lower()
@@ -272,18 +421,27 @@ with open(INPUT_CSV, mode='r', encoding='utf-8-sig') as infile:
             sys.exit(0)
 
     output_fields = list(fieldnames)
-    
-    # Determine column insertion index dynamically if Genre column didn't explicitly exist
+
+    metadata_columns_to_add = []
     if has_genre_col and genre_key not in output_fields:
-        if episode_key in fieldnames:
-            episode_index = fieldnames.index(episode_key)
-            output_fields = fieldnames[:episode_index] + ["Genre"] + fieldnames[episode_index:]
-        else:
-            output_fields = fieldnames + ["Genre"]
+        metadata_columns_to_add.append("Genre")
         genre_key = "Genre"
+    if has_publisher_col and pub_key not in output_fields:
+        metadata_columns_to_add.append("Publisher")
+        pub_key = "Publisher"
+    if has_developer_col and dev_key not in output_fields:
+        metadata_columns_to_add.append("Developer")
+        dev_key = "Developer"
+    if has_release_date_col and rel_date_key not in output_fields:
+        metadata_columns_to_add.append("Release Date")
+        rel_date_key = "Release Date"
+    if has_platform_output_col and platform_output_key not in output_fields:
+        metadata_columns_to_add.append(platform_output_key if platform_output_key in fieldnames else "Platform")
+        platform_output_key = metadata_columns_to_add[-1]
+
+    output_fields = inject_missing_metadata_columns(output_fields, metadata_columns_to_add, episode_key)
 
     # Pre-calculate row list to establish accurate total tracking indices
-    raw_rows_list = list(reader)
     rows_list = []
     
     # Context-aware pre-filtering loop step to lock incremental tallies exactly to the active scope
