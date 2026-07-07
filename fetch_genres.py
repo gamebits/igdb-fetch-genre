@@ -160,6 +160,83 @@ def expand_platform_aliases(system_name):
     }
     return mapping.get(norm, [system_name])
 
+def split_input_systems(system):
+    return [s.strip() for s in system.replace("/", "|").replace(",", "|").split("|") if s.strip()]
+
+def platforms_match(input_system, igdb_platform_name):
+    if not input_system or not igdb_platform_name:
+        return False
+    db_platform_norm = normalize_string(igdb_platform_name)
+    for sub in split_input_systems(input_system):
+        translated_aliases = [normalize_string(a) for a in expand_platform_aliases(sub)]
+        if any(alias in db_platform_norm or db_platform_norm in alias for alias in translated_aliases):
+            return True
+    return False
+
+def select_release_date_entry(game_node, target_system=None, target_year=None):
+    """Pick the IGDB release_dates entry that best matches the user's platform and year."""
+    release_dates = game_node.get("release_dates") or []
+    if not release_dates:
+        return None
+
+    candidates = release_dates
+    if target_system:
+        platform_matches = [
+            rd for rd in release_dates
+            if rd.get("platform") and platforms_match(target_system, rd["platform"].get("name", ""))
+        ]
+        if not platform_matches:
+            return None
+        candidates = platform_matches
+
+    if target_year and target_year.isdigit() and len(target_year) == 4:
+        year_matches = [
+            rd for rd in candidates
+            if rd.get("date") and time.strftime("%Y", time.gmtime(rd["date"])) == target_year
+        ]
+        if year_matches:
+            return max(year_matches, key=lambda rd: rd["date"])
+
+    dated = [rd for rd in candidates if rd.get("date")]
+    if dated:
+        return max(dated, key=lambda rd: rd["date"])
+
+    return None
+
+def extract_metadata_from_candidate(game_node, target_system=None, target_year=None):
+    meta = {"genre": "", "publisher": "", "developer": "", "release_date": "", "original_platform": ""}
+    if "genres" in game_node and game_node["genres"]:
+        meta["genre"] = ", ".join([g["name"] for g in game_node["genres"]])
+    if "involved_companies" in game_node:
+        pubs, devs = [], []
+        for ic in game_node["involved_companies"]:
+            c_name = ic.get("company", {}).get("name")
+            if c_name:
+                if ic.get("publisher"): pubs.append(c_name)
+                if ic.get("developer"): devs.append(c_name)
+        meta["publisher"] = ", ".join(pubs)
+        meta["developer"] = ", ".join(devs)
+
+    selected_release = select_release_date_entry(game_node, target_system, target_year)
+    if selected_release and selected_release.get("date"):
+        raw_timestamp = selected_release["date"]
+        meta["release_date"] = time.strftime("%Y-%m-%d", time.gmtime(raw_timestamp))
+        if selected_release.get("platform"):
+            meta["original_platform"] = selected_release["platform"].get("name", "")
+    elif not target_system:
+        raw_timestamp = game_node.get("first_release_date")
+        if raw_timestamp:
+            meta["release_date"] = time.strftime("%Y-%m-%d", time.gmtime(raw_timestamp))
+            if "release_dates" in game_node and game_node["release_dates"]:
+                for rd in game_node["release_dates"]:
+                    if rd.get("date") == raw_timestamp and "platform" in rd:
+                        meta["original_platform"] = rd["platform"].get("name", "")
+                        break
+                if not meta["original_platform"] and "platforms" in game_node and game_node["platforms"]:
+                    meta["original_platform"] = game_node["platforms"][0].get("name", "")
+
+    return meta
+
 # Escape user-provided titles before embedding them in APICalypse query literals
 def escape_apicalypse_string(text):
     if not text:
@@ -491,36 +568,6 @@ if True:
     has_system_column = system_key in fieldnames
     has_release_date_in_output = rel_date_key in output_fields
 
-    # Helper function to map data out extracted from an IGDB payload entry
-    def extract_metadata_from_candidate(game_node):
-        meta = {"genre": "", "publisher": "", "developer": "", "release_date": "", "original_platform": ""}
-        if "genres" in game_node and game_node["genres"]:
-            meta["genre"] = ", ".join([g["name"] for g in game_node["genres"]])
-        if "involved_companies" in game_node:
-            pubs, devs = [], []
-            for ic in game_node["involved_companies"]:
-                c_name = ic.get("company", {}).get("name")
-                if c_name:
-                    if ic.get("publisher"): pubs.append(c_name)
-                    if ic.get("developer"): devs.append(c_name)
-            meta["publisher"] = ", ".join(pubs)
-            meta["developer"] = ", ".join(devs)
-        
-        raw_timestamp = game_node.get("first_release_date")
-        if raw_timestamp:
-            meta["release_date"] = time.strftime('%Y-%m-%d', time.gmtime(raw_timestamp))
-            
-            # Walk the release dates list to locate which port matches our exact first release date
-            if "release_dates" in game_node and game_node["release_dates"]:
-                for rd in game_node["release_dates"]:
-                    if rd.get("date") == raw_timestamp and "platform" in rd:
-                        meta["original_platform"] = rd["platform"].get("name", "")
-                        break
-                # Fallback to the top level platform array if sub-objects are unaligned
-                if not meta["original_platform"] and "platforms" in game_node and game_node["platforms"]:
-                    meta["original_platform"] = game_node["platforms"][0].get("name", "")
-        return meta
-
     # Memory bucket tracking queue for post-processing review pass
     triage_queue = []
 
@@ -746,7 +793,7 @@ if True:
                 # --- METADATA EXTRACTION AND INJECTION ---
                 log_components = []
                 row_had_active_updates = False
-                extracted = extract_metadata_from_candidate(matched_game)
+                extracted = extract_metadata_from_candidate(matched_game, system, year)
 
                 # Track timeline discrepancies if baseline fields coexist
                 if year.isdigit() and len(year) == 4 and has_release_date_in_output and extracted["release_date"]:
@@ -759,19 +806,7 @@ if True:
 
                 # Track platform discrepancies if mapping columns coexist with granular partial cross-substring protection
                 if has_system_column and has_platform_output_col and system and extracted["original_platform"]:
-                    # Split input fields down dynamically to accommodate compound spreadsheet markers like "Sega Genesis / SNES"
-                    sub_systems = [s.strip() for s in system.replace("/", "|").replace(",", "|").split("|") if s.strip()]
-                    
-                    matched_any_sub_system = False
-                    db_platform_norm = normalize_string(extracted["original_platform"])
-                    
-                    for sub in sub_systems:
-                        translated_aliases = [normalize_string(a) for a in expand_platform_aliases(sub)]
-                        if any(alias in db_platform_norm or db_platform_norm in alias for alias in translated_aliases):
-                            matched_any_sub_system = True
-                            break
-                            
-                    if not matched_any_sub_system:
+                    if not platforms_match(system, extracted["original_platform"]):
                         count_inaccurate_platforms += 1
                         inaccurate_platforms_queue.append(
                             f"👾  {game_title} — Recorded: {system} vs. IGDB: {extracted['original_platform']}"
@@ -940,7 +975,7 @@ print("-" * 70)
 
 # Append read-only log mapping historical date profiles
 if (has_date_column or has_release_date_in_output) and inaccurate_years_queue:
-    print("\n📋 Detailed List of Inaccurate Spreadsheet Release Years:")
+    print(f"\n📋 Detailed List of Inaccurate Spreadsheet Release Years: {len(inaccurate_years_queue)}")
     print("-" * 70)
     for skew_item in inaccurate_years_queue:
         print(skew_item)
@@ -948,7 +983,7 @@ if (has_date_column or has_release_date_in_output) and inaccurate_years_queue:
 
 # Append read-only log mapping historical platform profiles
 if has_system_column and has_platform_output_col and inaccurate_platforms_queue:
-    print("\n📋 Detailed List of Inaccurate Spreadsheet Release Platforms:")
+    print(f"\n📋 Detailed List of Inaccurate Spreadsheet Release Platforms: {len(inaccurate_platforms_queue)}")
     print("-" * 70)
     for skew_item in inaccurate_platforms_queue:
         print(skew_item)
@@ -997,7 +1032,15 @@ if triage_queue and enable_triage:
                 chosen_candidate = item['options_pool'][int(selection) - 1]
                 
             if chosen_candidate and chosen_candidate['id'] != item['auto_selected']['id']:
-                new_meta = extract_metadata_from_candidate(chosen_candidate)
+                new_meta = extract_metadata_from_candidate(
+                    chosen_candidate,
+                    item["original_system"],
+                    extract_search_year(
+                        item["row_reference"],
+                        date_key if has_date_column else None,
+                        rel_date_key if has_release_date_in_output else None,
+                    ),
+                )
                 # Compute updated similarity confidence index on manually resolved choices
                 new_target_norm = normalize_string(item['original_title'])
                 new_cand_norm = normalize_string(chosen_candidate.get("name", ""))

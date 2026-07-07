@@ -146,6 +146,7 @@ The utility detects and leverages optional metadata columns to drastically impro
 
 #### 2. "Original System" Column (The Tie-Breaker)
 * **How it is used:** If a column named `Original System` is present, its content acts as the ultimate platform filter during candidate evaluation. The script runs the spreadsheet value through an internal alias translator (e.g., expanding `NES` to `"Nintendo Entertainment System"` or `GENESIS` to `"Sega Genesis"` or `"Mega Drive"`) and requires any matching candidate from the API to exist on that platform layout to pass strict evaluation passes.
+* **Platform-specific releases:** When a platform is known, release date and platform metadata are pulled from IGDB's per-platform `release_dates` list rather than the game's global first release. For example, *Legend of Grimrock* on Switch uses the 2024 Switch port date instead of the 2012 PC debut.
 * **If missing or blank:** Platform validation constraints are disabled. The script relies purely on text similarity scoring across global database records, which can increase the likelihood of naming collisions on highly common words or franchise names.
 
 ---
