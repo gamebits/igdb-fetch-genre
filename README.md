@@ -114,6 +114,8 @@ Each Trello card becomes one row. The script derives search and metadata columns
 | `Date` | Four-digit year extracted from the release date (used for IGDB year-scoped searches) |
 | `Original System` | Platform labels on the card (see below), joined with ` / ` when multiple apply |
 
+The `Release Date` value is used to narrow IGDB searches: a full `YYYY-MM-DD` date has its four-digit year extracted automatically. If `Date` is also present, it takes precedence when it already contains a valid year. Blank `Release Date` cells are filled from IGDB whenever a match is found, even if you did not select Release Date in the metadata prompt.
+
 #### Trello Labels
 
 Every label defined on the board is preserved as its own column in the output CSV. If a card has a given label, that column contains the label name; otherwise the cell is left blank.
@@ -128,7 +130,7 @@ Platform-style labels (for example `Switch`, `Steam`, `PS4`) are also copied int
 * `Original System`: Switch
 * `Switch` label column: Switch
 
-When you run the script on a Trello JSON file, it always shows the metadata selection prompt above (default: Genre only). Trello's existing `Release Date`, `Date`, and `Original System` values are still used to narrow IGDB searches even if you do not select those fields for enrichment.
+When you run the script on a Trello JSON file, it always shows the metadata selection prompt above (default: Genre only). Trello's existing `Release Date`, `Date`, and `Original System` values are still used to narrow IGDB searches. Blank release dates are filled from IGDB results without requiring you to select Release Date in the prompt.
 
 After IGDB enrichment, the output file includes the fetched metadata columns you chose alongside all original Trello label columns.
 

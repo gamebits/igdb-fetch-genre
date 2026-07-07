@@ -166,6 +166,25 @@ def escape_apicalypse_string(text):
         return ""
     return text.replace("\\", "\\\\").replace('"', '\\"')
 
+def extract_search_year(row, date_key, rel_date_key):
+    """Derive a four-digit release year for IGDB search scoping."""
+    date_value = (row.get(date_key) or "").strip() if date_key else ""
+    if date_value.isdigit() and len(date_value) == 4:
+        return date_value
+
+    release_value = (row.get(rel_date_key) or "").strip() if rel_date_key else ""
+    if not release_value:
+        return ""
+
+    if release_value.isdigit() and len(release_value) == 4:
+        return release_value
+
+    # Accept ISO dates (YYYY-MM-DD) and similar leading-year formats.
+    if len(release_value) >= 4 and release_value[:4].isdigit():
+        return release_value[:4]
+
+    return ""
+
 def prompt_metadata_selection(default_choices="g"):
     """Ask which IGDB metadata fields to fetch when headers do not declare them."""
     print("\nWhich metadata should be fetched from IGDB?")
@@ -470,6 +489,7 @@ if True:
 
     has_date_column = date_key in fieldnames
     has_system_column = system_key in fieldnames
+    has_release_date_in_output = rel_date_key in output_fields
 
     # Helper function to map data out extracted from an IGDB payload entry
     def extract_metadata_from_candidate(game_node):
@@ -541,7 +561,11 @@ if True:
                     title = val
                     break
             
-            year = row.get(date_key, "").strip() if has_date_column else ""
+            year = extract_search_year(
+                row,
+                date_key if has_date_column else None,
+                rel_date_key if has_release_date_in_output else None,
+            )
             system = row.get(system_key, "").strip() if has_system_column else ""
             
             if not title or title.strip() == "":
@@ -555,16 +579,23 @@ if True:
             needs_genre = has_genre_col and not row.get(genre_key, "").strip()
             needs_pub = has_publisher_col and not row.get(pub_key, "").strip()
             needs_dev = has_developer_col and not row.get(dev_key, "").strip()
-            needs_date = has_release_date_col and not row.get(rel_date_key, "").strip()
+            release_date_is_blank = has_release_date_in_output and not row.get(rel_date_key, "").strip()
+            needs_date = has_release_date_col and release_date_is_blank
             needs_platform = has_platform_output_col and not row.get(platform_output_key, "").strip()
 
             if has_genre_col and not needs_genre: genres_skipped += 1
             if has_publisher_col and not needs_pub: publishers_skipped += 1
             if has_developer_col and not needs_dev: developers_skipped += 1
-            if has_release_date_col and not needs_date: dates_skipped += 1
+            if has_release_date_col and has_release_date_in_output and not release_date_is_blank: dates_skipped += 1
             if has_platform_output_col and not needs_platform: platforms_skipped += 1
 
-            if has_genre_col or has_publisher_col or has_developer_col or has_release_date_col or has_platform_output_col:
+            if (
+                has_genre_col
+                or has_publisher_col
+                or has_developer_col
+                or has_release_date_col
+                or has_platform_output_col
+            ):
                 if not (needs_genre or needs_pub or needs_dev or needs_date or needs_platform):
                     print()
                     print(f"⏭️  ({index}/{total_games}) [Skipped] {title.strip()} (All requested metadata already populated)")
@@ -718,7 +749,7 @@ if True:
                 extracted = extract_metadata_from_candidate(matched_game)
 
                 # Track timeline discrepancies if baseline fields coexist
-                if has_date_column and has_release_date_col and year.isdigit() and len(year) == 4 and extracted["release_date"]:
+                if year.isdigit() and len(year) == 4 and has_release_date_in_output and extracted["release_date"]:
                     db_year = extracted["release_date"].split("-")[0]
                     if year != db_year:
                         count_inaccurate_years += 1
@@ -794,18 +825,18 @@ if True:
                         log_components.append(f"Developer: {row[dev_key]} (Skipped)")
 
                 # Update Release Date Column
-                if has_release_date_col:
-                    if needs_date:
-                        if extracted["release_date"]:
-                            row[rel_date_key] = extracted["release_date"]
-                            dates_updated += 1
-                            row_had_active_updates = True
-                        else:
-                            row[rel_date_key] = "Unknown"
-                            dates_no_data += 1
+                if needs_date:
+                    if extracted["release_date"]:
+                        row[rel_date_key] = extracted["release_date"]
+                        dates_updated += 1
+                        row_had_active_updates = True
                         log_components.append(f"Release Date: {row[rel_date_key]}")
                     else:
-                        log_components.append(f"Release Date: {row[rel_date_key]} (Skipped)")
+                        row[rel_date_key] = "Unknown"
+                        dates_no_data += 1
+                        log_components.append(f"Release Date: {row[rel_date_key]}")
+                elif has_release_date_col:
+                    log_components.append(f"Release Date: {row[rel_date_key]} (Skipped)")
 
                 # Update Original Platform Column
                 if has_platform_output_col:
@@ -843,7 +874,7 @@ if True:
                 if has_developer_col and needs_dev:
                     row[dev_key] = "Unknown"
                     developers_missing_index += 1
-                if has_release_date_col and needs_date:
+                if release_date_is_blank and has_release_date_col:
                     row[rel_date_key] = "Unknown"
                     dates_missing_index += 1
                 if has_platform_output_col and needs_platform:
@@ -882,11 +913,11 @@ if has_developer_col:
     print(f"  • Developer requests missing entirely from IGDB index: {developers_missing_index}")
     print(f"  • Developer entries skipped (pre-populated): {developers_skipped}")
 
-if has_release_date_col:
+if has_release_date_col or has_release_date_in_output:
     print()
     print(f"  • Release Dates updated: {dates_updated}")
     print(f"  • Games found with no release date context listed: {dates_no_data}")
-    if has_date_column:
+    if has_date_column or has_release_date_in_output:
         print(f"  • Games whose originally recorded release years were inaccurate: {count_inaccurate_years}")
     print(f"  • Release Date requests missing entirely from IGDB index: {dates_missing_index}")
     print(f"  • Release Date entries skipped (pre-populated): {dates_skipped}")
@@ -908,7 +939,7 @@ print(f"  • Total games updated: {count_total_successfully_updated_rows} out o
 print("-" * 70)
 
 # Append read-only log mapping historical date profiles
-if has_date_column and has_release_date_col and inaccurate_years_queue:
+if (has_date_column or has_release_date_in_output) and inaccurate_years_queue:
     print("\n📋 Detailed List of Inaccurate Spreadsheet Release Years:")
     print("-" * 70)
     for skew_item in inaccurate_years_queue:
