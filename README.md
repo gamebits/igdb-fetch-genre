@@ -211,6 +211,16 @@ Perform a dry run? (Stream updates but do not write to file) [y/N]:
     
 *   **Standard Modification Mode (Default / Enter / n):** Bypasses the simulation. The script checks for local naming conflicts, prompts for overwrite confirmations if necessary, and permanently commits all recovered structural metadata directly into your newly generated output file.
 
+#### Placeholder Refresh (Optional)
+After the triage prompt, the script asks whether to re-query rows that contain script-written placeholder values:
+
+```text
+Re-query rows with placeholder values (Unknown / No genre data available)? [y/N]:
+```
+
+*   **Disabled (Default / Enter / n):** Blank cells are filled from IGDB as usual. Any non-empty cell—including `Unknown` or `No genre data available`—is treated as pre-populated and skipped.
+*   **Enabled (y / yes):** Cells containing `Unknown` or `No genre data available` are treated as eligible for a new IGDB lookup. Real user-provided data is never overwritten. When IGDB returns better data, the placeholder is upgraded; when it does not, the original placeholder is preserved.
+
 #### Historical Timeline Drift Validation
 If your source spreadsheet includes a standard `Date` column (the four-digit tracking year used to tighten API filters) *and* your execution environment is actively fetching and populating a `Release Date` metadata field from IGDB, the utility automatically monitors temporal timeline drift. 
 
