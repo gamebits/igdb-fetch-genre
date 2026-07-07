@@ -1,6 +1,6 @@
 # IGDB Game Genre Fetcher Utility
 
-This utility reads a game collection list from a CSV spreadsheet, queries the **IGDB API** via the Twitch Developer Portal to match video game titles, extracts their metadata (release date, publisher, developer, platform, and genre), and logs everything to an updated CSV spreadsheet.
+This utility reads a game collection list from a CSV spreadsheet or a **Trello board JSON export**, queries the **IGDB API** via the Twitch Developer Portal to match video game titles, extracts their metadata (release date, publisher, developer, platform, and genre), and logs everything to an updated CSV spreadsheet.
 
 It was vibe-coded by Ken Gagne using Google Gemini for use with the _[New Game Plus](https://ngppodcast.com/)_ podcast's [Retro Master List](https://bit.ly/RetroML), but it can be adapted to any use case or CSV.
 
@@ -11,6 +11,7 @@ It was vibe-coded by Ken Gagne using Google Gemini for use with the _[New Game P
 - [3. File and Directory Layout](#3-file-and-directory-layout)
   - [Overwrite Safeguard](#overwrite-safeguard)
   - [Expected & Acceptable Spreadsheet Layouts](#expected--acceptable-spreadsheet-layouts)
+  - [Trello Board JSON Exports](#trello-board-json-exports)
   - [Metadata Detection & Query Precision](#metadata-detection--query-precision)
 - [4. Preparing the Executable Utility](#4-preparing-the-executable-utility)
 - [5. Injecting Credentials & Running the Script](#5-injecting-credentials--running-the-script)
@@ -53,9 +54,9 @@ For the script to work flawlessly without manual path overrides, save the proces
 Use the following naming layout:
 
 * **Target Directory Location:** `~/Desktop/ngp/` *(or any folder path of your choice)*
-* **Input Spreadsheet Filename:** The script prompts the user at execution time to identify the CSV file. If no name is typed and you press Enter, it automatically defaults to `Games.csv`. If you type a filename without an extension (e.g., `Games`) and it doesn't exist, the script will automatically append `.csv` and try to read it before throwing an error.
+* **Input Spreadsheet Filename:** The script prompts the user at execution time to identify the input file. If no name is typed and you press Enter, it automatically defaults to `Games.csv`. If you type a filename without an extension (e.g., `Games` or `trello`) and it doesn't exist, the script will automatically try `.csv` and `.json` extensions before throwing an error.
 * **Python Script Filename:** `fetch_genres.py`
-* **Generated Output Spreadsheet:** Dynamically named based on your input with `-Genres` appended (e.g., `Games-Genres.csv` or `outliers-Genres.csv`). This file is automatically created during execution.
+* **Generated Output Spreadsheet:** Dynamically named based on your input with `-Genres` appended (e.g., `Games-Genres.csv`, `trello-Genres.csv`, or `outliers-Genres.csv`). Trello JSON inputs always write CSV output. This file is automatically created during execution.
 
 ### Overwrite Safeguard
 If the script detects that the output file (e.g., `Games-Genres.csv`) already exists in the folder, it will pause and prompt for explicit permission before overwriting anything:
@@ -74,7 +75,16 @@ The utility features an **Implicit Schema ("Detect and Inject")** workflow. Rath
 The script actively scans your spreadsheet headers for the presence of columns titled `Release Date`, `Platform`, `Publisher`, `Developer`, and `Genre`. 
 
 * **Target Enrichment:** If any combination of these columns is found, the script flags them as active targets. At startup, it displays the discovered structure and prompts for explicit processing confirmation before querying the API.
-* **Selective Genre Column Injection:** If all metadata targets (`Genre`, `Publisher`, `Developer`, and `Release Date`) are completely missing from the sheet, a `Genre` column will be dynamically added (either before the `Episode` column if present, or to the end of the spreadsheet if not).
+* **Interactive Metadata Selection:** If the input is a Trello JSON export, or if a CSV has no `Genre`, `Publisher`, `Developer`, `Release Date`, or `Platform` / `Original Platform` columns, the script prompts you to choose which metadata to fetch from IGDB:
+
+```text
+Which metadata should be fetched from IGDB?
+  [G]enre  [P]ublisher  [D]eveloper  [R]elease Date  [L] platform
+  Enter one or more choices (e.g., GPD or all)
+Your selection [g]:
+```
+
+Press Enter to accept the default (`Genre` only), type `all` for every field, or enter any combination of `G`, `P`, `D`, `R`, and `L`. Blank columns are added to the output for each selected field.
 
 #### Episode Tracking & Interactive Filtering
 If the spreadsheet contains either an `Episode` or `Episode #` column, the script automatically enables an interactive workflow configuration choice at startup:
@@ -82,6 +92,45 @@ If the spreadsheet contains either an `Episode` or `Episode #` column, the scrip
 * **Interactive Scope Filter Prompt:** The tool pauses and asks the operator: `Process only existing episodes? [Y/n]: `
 * **Filtering Mode (Default / 'Yes'):** Pressing Enter or typing `y`/`yes` limits the script context exclusively to rows that have an active episode identifier. Rows without numbers (blank cells, `-`, or `None`) are cleanly bypassed during the lookup pass and written back out to the final document without using up API query limits. Under this mode, all real-time terminal progress indicators scale matching contexts directly to this subset (e.g., `(1/1)` rows instead of processing the entire sheet size).
 * **Unrestricted Mode ('No'):** Submitting `n`/`no` deactivates the guard completely. The script processes every single entry in the list chronologically from top to bottom, regardless of whether an episode key is assigned.
+
+### Trello Board JSON Exports
+
+The utility also accepts a standard **Trello board JSON export** (the file produced when you export a board from Trello as JSON). Point the script at that file when prompted—for example, `trello.json`.
+
+#### Exporting from Trello
+
+1. Open your Trello board.
+2. Open the board menu and choose **Print, Export, and Share** → **Export as JSON**.
+3. Save the downloaded file alongside `fetch_genres.py`.
+
+#### How Trello Cards Map to Spreadsheet Columns
+
+Each Trello card becomes one row. The script derives search and metadata columns as follows:
+
+| Output Column | Trello Source |
+|---|---|
+| `Title` | Card name |
+| `Release Date` | Board custom field named **Release date** (if present), formatted as `YYYY-MM-DD` |
+| `Date` | Four-digit year extracted from the release date (used for IGDB year-scoped searches) |
+| `Original System` | Platform labels on the card (see below), joined with ` / ` when multiple apply |
+
+#### Trello Labels
+
+Every label defined on the board is preserved as its own column in the output CSV. If a card has a given label, that column contains the label name; otherwise the cell is left blank.
+
+Platform-style labels (for example `Switch`, `Steam`, `PS4`) are also copied into `Original System` for IGDB matching. Status-style labels such as `Unreleased` and `Collection` are kept in their label columns but are excluded from `Original System`.
+
+**Example:** A card named *Prince of Persia: The Lost Crown* with a **Release date** custom field of January 18, 2024 and a `Switch` label becomes:
+
+* `Title`: Prince of Persia: The Lost Crown
+* `Release Date`: 2024-01-18
+* `Date`: 2024
+* `Original System`: Switch
+* `Switch` label column: Switch
+
+When you run the script on a Trello JSON file, it always shows the metadata selection prompt above (default: Genre only). Trello's existing `Release Date`, `Date`, and `Original System` values are still used to narrow IGDB searches even if you do not select those fields for enrichment.
+
+After IGDB enrichment, the output file includes the fetched metadata columns you chose alongside all original Trello label columns.
 
 ---
 
