@@ -72,19 +72,19 @@ If you decline or press Enter, the operation cancels cleanly without losing data
 The utility features an **Implicit Schema ("Detect and Inject")** workflow. Rather than requiring a static or rigid table setup, it dynamically alters its behavior based on which specific column headers it finds inside your sheet:
 
 #### Found Targets: Explicit Metadata Columns
-The script actively scans your spreadsheet headers for the presence of columns titled `Release Date`, `Platform`, `Publisher`, `Developer`, and `Genre`. 
+The script actively scans your spreadsheet headers for the presence of columns titled `Release Date`, `Platform`, `Publisher`, `Developer`, `Genre`, and `IGDB ID`. 
 
 * **Target Enrichment:** If any combination of these columns is found, the script flags them as active targets. At startup, it displays the discovered structure and prompts for explicit processing confirmation before querying the API.
-* **Interactive Metadata Selection:** If the input is a Trello JSON export, or if a CSV has no `Genre`, `Publisher`, `Developer`, `Release Date`, or `Platform` / `Original Platform` columns, the script prompts you to choose which metadata to fetch from IGDB:
+* **Interactive Metadata Selection:** If the input is a Trello JSON export, or if a CSV has no `Genre`, `Publisher`, `Developer`, `Release Date`, `Platform` / `Original Platform`, or `IGDB ID` columns, the script prompts you to choose which metadata to fetch from IGDB:
 
 ```text
 Which metadata should be fetched from IGDB?
-  [G]enre  [P]ublisher  [D]eveloper  [R]elease Date  [L] platform
+  [G]enre  [P]ublisher  [D]eveloper  [R]elease Date  [L] platform  [I] IGDB ID
   Enter one or more choices (e.g., GPD or all)
 Your selection [g]:
 ```
 
-Press Enter to accept the default (`Genre` only), type `all` for every field, or enter any combination of `G`, `P`, `D`, `R`, and `L`. Blank columns are added to the output for each selected field.
+Press Enter to accept the default (`Genre` only), type `all` for every field, or enter any combination of `G`, `P`, `D`, `R`, `L`, and `I`. Blank columns are added to the output for each selected field. The `IGDB ID` column stores the numeric game identifier from IGDB (for example, `7346` for *The Legend of Zelda: Breath of the Wild*).
 
 #### Episode Tracking & Interactive Filtering
 If the spreadsheet contains either an `Episode` or `Episode #` column, the script automatically enables an interactive workflow configuration choice at startup:
