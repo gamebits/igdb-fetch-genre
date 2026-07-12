@@ -208,7 +208,10 @@ def select_release_date_entry(game_node, target_system=None, target_year=None):
     return None
 
 def extract_metadata_from_candidate(game_node, target_system=None, target_year=None):
-    meta = {"genre": "", "publisher": "", "developer": "", "release_date": "", "original_platform": ""}
+    meta = {"genre": "", "publisher": "", "developer": "", "release_date": "", "original_platform": "", "igdb_id": ""}
+    game_id = game_node.get("id")
+    if game_id is not None:
+        meta["igdb_id"] = str(game_id)
     if "genres" in game_node and game_node["genres"]:
         meta["genre"] = ", ".join([g["name"] for g in game_node["genres"]])
     if "involved_companies" in game_node:
@@ -313,18 +316,18 @@ def apply_text_metadata_update(
 def prompt_metadata_selection(default_choices="g"):
     """Ask which IGDB metadata fields to fetch when headers do not declare them."""
     print("\nWhich metadata should be fetched from IGDB?")
-    print("  [G]enre  [P]ublisher  [D]eveloper  [R]elease Date  [L] platform")
+    print("  [G]enre  [P]ublisher  [D]eveloper  [R]elease Date  [L] platform  [I] IGDB ID")
     print("  Enter one or more choices (e.g., GPD or all)")
     while True:
         raw = input(f"Your selection [{default_choices}]: ").strip().lower()
         if not raw:
             raw = default_choices
         if raw == "all":
-            return frozenset("gpdrl")
-        selected = {char for char in raw if char in "gpdrl"}
+            return frozenset("gpdrli")
+        selected = {char for char in raw if char in "gpdrli"}
         if selected:
             return frozenset(selected)
-        print("No valid choices entered. Use G, P, D, R, L, or all.")
+        print("No valid choices entered. Use G, P, D, R, L, I, or all.")
 
 def inject_missing_metadata_columns(output_fields, columns_to_add, episode_key):
     """Insert blank metadata columns that were requested but are not yet present."""
@@ -473,6 +476,13 @@ platforms_skipped = 0
 platforms_refreshed = 0
 platforms_still_unknown = 0
 
+igdb_ids_updated = 0
+igdb_ids_no_data = 0
+igdb_ids_missing_index = 0
+igdb_ids_skipped = 0
+igdb_ids_refreshed = 0
+igdb_ids_still_unknown = 0
+
 # Storage bucket arrays to cache formatting strings of detected variations
 inaccurate_years_queue = []
 inaccurate_platforms_queue = []
@@ -488,6 +498,7 @@ if True:
     has_publisher_col = any(f.lower() == "publisher" for f in fieldnames)
     has_developer_col = any(f.lower() == "developer" for f in fieldnames)
     has_platform_output_col = any(f.lower() in ("platform", "original platform") for f in fieldnames)
+    has_igdb_id_col = any(f.lower() == "igdb id" for f in fieldnames)
     has_confidence_col = any(f.lower() == "confidence" for f in fieldnames)
 
     # Resolve literal column field names as they exist exactly inside the source document
@@ -502,6 +513,7 @@ if True:
     dev_key = next((f for f in fieldnames if f.lower() == "developer"), "Developer")
     rel_date_key = next((f for f in fieldnames if f.lower() == "release date"), "Release Date")
     platform_output_key = next((f for f in fieldnames if f.lower() in ("platform", "original platform")), "Original Platform")
+    igdb_id_key = next((f for f in fieldnames if f.lower() == "igdb id"), "IGDB ID")
     confidence_key = next((f for f in fieldnames if f.lower() == "confidence"), "Confidence")
 
     detected_targets = []
@@ -510,6 +522,7 @@ if True:
     if has_publisher_col: detected_targets.append("Publisher")
     if has_developer_col: detected_targets.append("Developer")
     if has_platform_output_col: detected_targets.append(platform_output_key)
+    if has_igdb_id_col: detected_targets.append("IGDB ID")
 
     if is_trello_input or not detected_targets:
         if is_trello_input:
@@ -524,6 +537,7 @@ if True:
         has_developer_col = "d" in selected_metadata
         has_release_date_col = "r" in selected_metadata
         has_platform_output_col = "l" in selected_metadata
+        has_igdb_id_col = "i" in selected_metadata
 
         genre_key = next((f for f in fieldnames if f.lower() == "genre"), "Genre")
         pub_key = next((f for f in fieldnames if f.lower() == "publisher"), "Publisher")
@@ -533,6 +547,7 @@ if True:
             (f for f in fieldnames if f.lower() in ("platform", "original platform")),
             "Platform",
         )
+        igdb_id_key = next((f for f in fieldnames if f.lower() == "igdb id"), "IGDB ID")
 
         detected_targets = []
         if has_genre_col: detected_targets.append("Genre")
@@ -540,6 +555,7 @@ if True:
         if has_publisher_col: detected_targets.append("Publisher")
         if has_developer_col: detected_targets.append("Developer")
         if has_platform_output_col: detected_targets.append(platform_output_key)
+        if has_igdb_id_col: detected_targets.append("IGDB ID")
 
         print(f"\n📋 Metadata to fetch: {', '.join(detected_targets)}")
         confirm = input("Proceed with filling missing fields for these columns? [Y/n]: ").strip().lower()
@@ -601,6 +617,9 @@ if True:
     if has_platform_output_col and platform_output_key not in output_fields:
         metadata_columns_to_add.append(platform_output_key if platform_output_key in fieldnames else "Platform")
         platform_output_key = metadata_columns_to_add[-1]
+    if has_igdb_id_col and igdb_id_key not in output_fields:
+        metadata_columns_to_add.append("IGDB ID")
+        igdb_id_key = "IGDB ID"
 
     output_fields = inject_missing_metadata_columns(output_fields, metadata_columns_to_add, episode_key)
 
@@ -689,6 +708,8 @@ if True:
 
             if has_genre_col and genre_key not in row:
                 row[genre_key] = ""
+            if has_igdb_id_col and igdb_id_key not in row:
+                row[igdb_id_key] = ""
 
             needs_genre = has_genre_col and is_missing_value(row.get(genre_key, ""), refresh_placeholders, "genre")
             needs_pub = has_publisher_col and is_missing_value(row.get(pub_key, ""), refresh_placeholders)
@@ -696,12 +717,14 @@ if True:
             release_date_is_blank = has_release_date_in_output and is_missing_value(row.get(rel_date_key, ""), refresh_placeholders)
             needs_date = has_release_date_col and release_date_is_blank
             needs_platform = has_platform_output_col and is_missing_value(row.get(platform_output_key, ""), refresh_placeholders)
+            needs_igdb_id = has_igdb_id_col and is_missing_value(row.get(igdb_id_key, ""), refresh_placeholders)
 
             if has_genre_col and not needs_genre: genres_skipped += 1
             if has_publisher_col and not needs_pub: publishers_skipped += 1
             if has_developer_col and not needs_dev: developers_skipped += 1
             if has_release_date_col and has_release_date_in_output and not needs_date: dates_skipped += 1
             if has_platform_output_col and not needs_platform: platforms_skipped += 1
+            if has_igdb_id_col and not needs_igdb_id: igdb_ids_skipped += 1
 
             if (
                 has_genre_col
@@ -709,8 +732,9 @@ if True:
                 or has_developer_col
                 or has_release_date_col
                 or has_platform_output_col
+                or has_igdb_id_col
             ):
-                if not (needs_genre or needs_pub or needs_dev or needs_date or needs_platform):
+                if not (needs_genre or needs_pub or needs_dev or needs_date or needs_platform or needs_igdb_id):
                     print()
                     print(f"⏭️  ({index}/{total_games}) [Skipped] {title.strip()} (All requested metadata already populated)")
                     clean_row = {field: row.get(field, "") for field in output_fields}
@@ -1023,6 +1047,34 @@ if True:
                     else:
                         log_components.append(f"Platform: {row[platform_output_key]} (Skipped)")
 
+                # Update IGDB ID Column
+                if has_igdb_id_col:
+                    if needs_igdb_id:
+                        prior_id = row.get(igdb_id_key, "")
+                        new_id, id_outcome = apply_text_metadata_update(
+                            prior_id,
+                            extracted["igdb_id"],
+                            "Unknown",
+                            refresh_placeholders,
+                        )
+                        row[igdb_id_key] = new_id
+                        if id_outcome == "updated":
+                            igdb_ids_updated += 1
+                            row_had_active_updates = True
+                            log_components.append(f"IGDB ID: {new_id}")
+                        elif id_outcome == "refreshed":
+                            igdb_ids_refreshed += 1
+                            row_had_active_updates = True
+                            log_components.append(f"IGDB ID: {prior_id.strip()} → {new_id} (Refreshed)")
+                        elif id_outcome == "still_unknown":
+                            igdb_ids_still_unknown += 1
+                            log_components.append(f"IGDB ID: {new_id} (Still unknown)")
+                        else:
+                            igdb_ids_no_data += 1
+                            log_components.append(f"IGDB ID: {new_id}")
+                    else:
+                        log_components.append(f"IGDB ID: {row[igdb_id_key]} (Skipped)")
+
                 if row_had_active_updates:
                     count_total_successfully_updated_rows += 1
 
@@ -1071,6 +1123,13 @@ if True:
                     else:
                         row[platform_output_key] = "Unknown"
                         platforms_missing_index += 1
+                if has_igdb_id_col and needs_igdb_id:
+                    prior_id = row.get(igdb_id_key, "").strip()
+                    if refresh_placeholders and is_placeholder_value(prior_id):
+                        igdb_ids_still_unknown += 1
+                    else:
+                        row[igdb_id_key] = "Unknown"
+                        igdb_ids_missing_index += 1
                 count_not_found += 1
             
             clean_row = {field: row.get(field, "") for field in output_fields}
@@ -1137,6 +1196,16 @@ if has_platform_output_col:
     print(f"  • Platforms requests missing entirely from IGDB index: {platforms_missing_index}")
     print(f"  • Platform entries skipped (pre-populated): {platforms_skipped}")
 
+if has_igdb_id_col:
+    print()
+    print(f"  • IGDB IDs updated: {igdb_ids_updated}")
+    if refresh_placeholders:
+        print(f"  • IGDB IDs refreshed from placeholders: {igdb_ids_refreshed}")
+        print(f"  • IGDB IDs still unknown after refresh: {igdb_ids_still_unknown}")
+    print(f"  • IGDB ID requests with no match data: {igdb_ids_no_data}")
+    print(f"  • IGDB ID requests missing entirely from IGDB index: {igdb_ids_missing_index}")
+    print(f"  • IGDB ID entries skipped (pre-populated): {igdb_ids_skipped}")
+
 print()
 print(f"  • Global titles completely missing from IGDB index: {count_not_found}")
 if has_episode_column and filter_by_episode:
@@ -1184,7 +1253,7 @@ if triage_queue and enable_triage:
                 p_list = [p.get("name") for p in opt.get("platforms", [])] if "platforms" in opt else []
                 p_str = f" on {', '.join(p_list[:3])}" if p_list else ""
                 marker = " 🌟 (Auto-Selected)" if opt['id'] == item['auto_selected']['id'] else ""
-                print(f"  [{o_idx}] {opt['name']}{p_str}{marker}")
+                print(f"  [{o_idx}] {opt['name']} (ID: {opt.get('id', '?')}){p_str}{marker}")
             print(f"  [S] Keep current auto-selection")
             print(f"  [X] Mark title as unknown/no match")
             
@@ -1197,6 +1266,7 @@ if triage_queue and enable_triage:
                 if has_developer_col: item['row_reference'][dev_key] = "Unknown"
                 if has_release_date_col: item['row_reference'][rel_date_key] = "Unknown"
                 if has_platform_output_col: item['row_reference'][platform_output_key] = "Unknown"
+                if has_igdb_id_col: item['row_reference'][igdb_id_key] = "Unknown"
                 if has_confidence_col: item['row_reference'][confidence_key] = "0%"
                 triage_mutated_count += 1
             elif selection != 's' and selection.isdigit() and 1 <= int(selection) <= len(item['options_pool']):
@@ -1222,6 +1292,7 @@ if triage_queue and enable_triage:
                 if has_developer_col: item['row_reference'][dev_key] = new_meta["developer"] or "Unknown"
                 if has_release_date_col: item['row_reference'][rel_date_key] = new_meta["release_date"] or "Unknown"
                 if has_platform_output_col: item['row_reference'][platform_output_key] = new_meta["original_platform"] or "Unknown"
+                if has_igdb_id_col: item['row_reference'][igdb_id_key] = new_meta["igdb_id"] or "Unknown"
                 if has_confidence_col: item['row_reference'][confidence_key] = f"{int(new_score * 100)}%"
                 triage_mutated_count += 1
                 print(f"✅ Reassigned to: {chosen_candidate['name']}")
